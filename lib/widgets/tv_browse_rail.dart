@@ -1414,7 +1414,8 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     return ListView.builder(
       key: const ValueKey('tv_browse_rail_vertical'),
       controller: _verticalController,
-      physics: const NeverScrollableScrollPhysics(),
+      // Permit pointer signals and touch drags as in library browse; D-pad
+      // navigation continues to use the controller's programmatic scrolling.
       // Inert on media lists (no keep-alive clients): dropping the per-child
       // wrappers shrinks build + semantics work per item.
       addAutomaticKeepAlives: false,
