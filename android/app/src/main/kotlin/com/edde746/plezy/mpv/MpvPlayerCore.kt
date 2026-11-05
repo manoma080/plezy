@@ -320,6 +320,7 @@ class MpvPlayerCore private constructor(
 
   /** Active reasons the session must render off the plane. */
   private val gpuVoReasons = LinkedHashSet<String>()
+  private val equalizerValues = mutableMapOf<String, Double>()
 
   /** The GL vo requested by the arbiter, or null for the video plane.
    * Written under [gpuVoReasons]. */
@@ -939,9 +940,12 @@ class MpvPlayerCore private constructor(
       lastKnownSurfaceHeight = 0
       // Video-output state, so a re-initialized core does not start stranded
       // off the plane with a stale reason set.
-      synchronized(gpuVoReasons) {
-        gpuVoReasons.clear()
-        activeGpuVoTarget = null
+      synchronized(equalizerValues) {
+        equalizerValues.clear()
+        synchronized(gpuVoReasons) {
+          gpuVoReasons.clear()
+          activeGpuVoTarget = null
+        }
       }
       appliedGpuVoTarget = null
       synchronized(hwdecHoldReasons) {
@@ -2882,6 +2886,12 @@ class MpvPlayerCore private constructor(
     }) {
       if (pauseIntent == null) {
         writeProperty(name, value)
+        if (name in setOf("brightness", "saturation", "gamma", "contrast", "hue", "sharpen")) {
+          synchronized(equalizerValues) {
+            equalizerValues[name] = value.toDoubleOrNull() ?: 0.0
+            setGpuVoRequirement("video-equalizer", equalizerValues.values.any { it != 0.0 })
+          }
+        }
       } else {
         publicPauseWriteMutex.withLock {
           val shouldWrite = synchronized(publicPauseIntentLock) {

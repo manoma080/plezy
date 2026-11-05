@@ -73,6 +73,7 @@ import '../services/player_sync_offsets.dart';
 import '../services/preferred_audio_device.dart';
 import '../services/scoped_player_prefs.dart';
 import '../services/settings_service.dart';
+import '../services/video_equalizer.dart';
 import '../services/sleep_timer_service.dart';
 import '../services/subtitle_preference.dart';
 import '../services/track_manager.dart';
@@ -1844,6 +1845,18 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
       initPhase = 'configuring player';
       await currentPlayer.configureSubtitleFonts();
       await currentPlayer.setProperty('sub-ass', 'yes'); // Enable libass
+      if (currentPlayer.playerType == 'mpv') {
+        final equalizer = VideoEqualizer(
+          read: (key) => settingsService.readInt(key),
+          write: settingsService.writeInt,
+          apply: (property, value) => currentPlayer.setProperty(property, value.toString()),
+        );
+        try {
+          await equalizer.restore();
+        } catch (error) {
+          appLogger.w('Video filters could not be restored', error: error);
+        }
+      }
       if (Platform.isAndroid && useExoPlayer) {
         final tunneledPlayback = settingsService.read(SettingsService.tunneledPlayback);
         await currentPlayer.setProperty('tunneled-playback', tunneledPlayback ? 'yes' : 'no');

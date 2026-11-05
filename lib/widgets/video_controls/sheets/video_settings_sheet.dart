@@ -23,6 +23,7 @@ import '../../../providers/shader_provider.dart';
 import '../../../services/file_picker_service.dart';
 import '../../../services/scoped_player_prefs.dart';
 import '../../../services/settings_service.dart';
+import '../../../services/video_equalizer.dart';
 import '../../../services/sleep_timer_service.dart';
 import '../../../services/video_filter_manager.dart';
 import '../../../focus/focusable_wrapper.dart';
@@ -61,6 +62,7 @@ enum _SettingsView {
   dvConversion,
   hdrToneMapping,
   audioChannelLimit,
+  equalizer,
 }
 
 class _SettingsMenuItem extends StatelessWidget {
@@ -657,6 +659,8 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
 
   String _getTitle() {
     switch (_currentView) {
+      case _SettingsView.equalizer:
+        return 'Video filters';
       case _SettingsView.menu:
         return t.videoControls.settingsButton;
       case _SettingsView.speed:
@@ -682,6 +686,8 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
 
   IconData _getIcon() {
     switch (_currentView) {
+      case _SettingsView.equalizer:
+        return Symbols.tune_rounded;
       case _SettingsView.menu:
         return Symbols.tune_rounded;
       case _SettingsView.speed:
@@ -810,6 +816,44 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
     return context.tryGetMediaClientForServer(serverIdOrNull(_state.serverId));
   }
 
+  VideoEqualizer get _equalizer => VideoEqualizer(
+    read: (key) => SettingsService.instance.readInt(key),
+    write: SettingsService.instance.writeInt,
+    apply: (property, value) => widget.player.setProperty(property, value.toString()),
+  );
+
+  Widget _buildEqualizerView() {
+    if (widget.player.playerType != 'mpv') {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Video filters require the MPV player. Switch from ExoPlayer in playback settings and restart playback.',
+        ),
+      );
+    }
+    final equalizer = _equalizer;
+    return ListView(
+      shrinkWrap: true,
+      children: [
+        for (final control in VideoEqualizerControl.values) _EqualizerSlider(control: control, equalizer: equalizer),
+        TextButton(
+          onPressed: () async {
+            try {
+              await equalizer.reset();
+            } catch (error) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reset filters: $error')));
+              }
+            } finally {
+              if (mounted) setState(() {});
+            }
+          },
+          child: const Text('Reset'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMenuView() {
     final sleepTimer = SleepTimerService();
     final isDesktop = PlatformDetector.isDesktop(context);
@@ -817,6 +861,12 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
     return ListView(
       shrinkWrap: true,
       children: [
+        _SettingsMenuItem(
+          icon: Symbols.tune_rounded,
+          title: 'Video filters',
+          valueText: widget.player.playerType == 'mpv' ? '' : 'MPV only',
+          onTap: () => _navigateTo(_SettingsView.equalizer),
+        ),
         // Playback Speed - hidden for live TV and when user cannot control playback
         if (_state.canControl && !_state.isLive)
           StreamBuilder<double>(
@@ -1540,6 +1590,8 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
       onBack: _currentView != _SettingsView.menu ? _navigateBack : null,
       child: () {
         switch (_currentView) {
+          case _SettingsView.equalizer:
+            return _buildEqualizerView();
           case _SettingsView.menu:
             return _buildMenuView();
           case _SettingsView.speed:
@@ -1712,6 +1764,56 @@ class _CompactSyncBarState extends State<_CompactSyncBar> {
           ),
         ),
         const SizedBox(width: 12),
+      ],
+    );
+  }
+}
+
+class _EqualizerSlider extends StatefulWidget {
+  const _EqualizerSlider({required this.control, required this.equalizer});
+  final VideoEqualizerControl control;
+  final VideoEqualizer equalizer;
+  @override
+  State<_EqualizerSlider> createState() => _EqualizerSliderState();
+}
+
+class _EqualizerSliderState extends State<_EqualizerSlider> {
+  late double value;
+  @override
+  void initState() {
+    super.initState();
+    value = widget.equalizer.value(widget.control).toDouble();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EqualizerSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    value = widget.equalizer.value(widget.control).toDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final control = widget.control;
+    final label = control.name[0].toUpperCase() + control.name.substring(1);
+    return Column(
+      children: [
+        Text('$label: ${value.round()}'),
+        Slider(
+          value: value,
+          min: -control.bound.toDouble(),
+          max: control.bound.toDouble(),
+          divisions: control.bound * 2,
+          onChanged: (next) async {
+            setState(() => value = next);
+            try {
+              await widget.equalizer.set(control, next.round());
+            } catch (error) {
+              if (!mounted) return;
+              setState(() => value = widget.equalizer.value(control).toDouble());
+              ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Could not apply $label: $error')));
+            }
+          },
+        ),
       ],
     );
   }
