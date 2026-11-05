@@ -301,7 +301,7 @@ android {
   }
 
   defaultConfig {
-    applicationId = "com.edde746.plezy"
+    applicationId = if (System.getenv("PLEZY_EQUALIZER_MOCK") == "1") "com.edde746.plezy.equalizermock" else "com.edde746.plezy"
     minSdk = 25 // Fire OS 6.x (API 25); the mpv-android AAR shares the same floor
     targetSdk = flutter.targetSdkVersion
     versionCode = flutter.versionCode
