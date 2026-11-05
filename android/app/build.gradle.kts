@@ -334,6 +334,10 @@ android {
   }
 
   signingConfigs {
+    getByName("debug") {
+      // CI supplies a private path; ordinary local builds keep AGP's default.
+      System.getenv("PLEZY_DEBUG_KEYSTORE_PATH")?.let { storeFile = file(it) }
+    }
     create("release") {
       val keystorePropertiesFile = rootProject.file("key.properties")
       if (keystorePropertiesFile.exists()) {

@@ -2,7 +2,7 @@ name: Main-mano debug APK
 
 on:
   push:
-    branches: [main-mano]
+    branches: [main-mano, ci/stable-debug-signing]
 
 permissions: {}
 
@@ -30,8 +30,22 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile --no-example
+      - name: Restore debug signing key
+        env:
+          DEBUG_KEYSTORE: ${{ secrets.PLEZY_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$DEBUG_KEYSTORE" || { echo 'Missing debug signing secret' >&2; exit 1; }
+          umask 077
+          printf '%s' "$DEBUG_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/plezy-debug.keystore"
+          test -s "$RUNNER_TEMP/plezy-debug.keystore"
       - name: Build debug APK
+        env:
+          PLEZY_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/plezy-debug.keystore
         run: flutter build apk --debug --no-pub --dart-define=GIT_COMMIT=${{ github.sha }}
+      - name: Verify APK signing certificate
+        run: |
+          "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-debug.apk > "$RUNNER_TEMP/apk-signing.txt"
+          python3 -c 'import os,pathlib,re; text=(pathlib.Path(os.environ["RUNNER_TEMP"])/"apk-signing.txt").read_text(); found=re.findall(r"Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)", text); expected="67fa43e201887f5fc24823471659919826af82232ede29a7dc27931858f8e10e"; assert len(found)==1 and found[0].lower()==expected, "Unexpected APK signer"; print("APK signing certificate verified:", found[0].lower())'
       - name: Upload APK for release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -40,6 +54,7 @@ jobs:
           if-no-files-found: error
 
   publish:
+    if: github.ref == 'refs/heads/main-mano'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -62,4 +77,4 @@ jobs:
           gh release create "$tag" release/app-debug.apk \
             --target "$COMMIT" --prerelease --latest=false \
             --title "main-mano debug ${RUN_ID} (attempt ${ATTEMPT})" \
-            --notes "Debug APK built from commit ${COMMIT}. Debug signing keys may differ between builds."
+            --notes "Debug APK built from commit ${COMMIT}. Signing certificate SHA-256: 67fa43e201887f5fc24823471659919826af82232ede29a7dc27931858f8e10e."
