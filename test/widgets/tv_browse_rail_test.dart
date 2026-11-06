@@ -1,4 +1,5 @@
 import 'package:drift/native.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -482,6 +483,55 @@ void main() {
 
     await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
     semantics.dispose();
+  });
+
+  testWidgets('wheel over a TV hub scrolls vertically and back', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final serverManager = MultiServerManager();
+    final hubs = List.generate(6, (index) {
+      final items = List.generate(
+        20,
+        (itemIndex) => testMediaItem(
+          id: 'movie_${index}_$itemIndex',
+          backend: MediaBackend.plex,
+          kind: MediaKind.movie,
+          title: 'Movie $index-$itemIndex',
+        ),
+      );
+      return MediaHub(id: 'hub_$index', title: 'Hub $index', type: 'movie', items: items, size: items.length);
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MultiServerProvider>(
+        create: (_) => testMultiServerProvider(serverManager),
+        child: InputModeTracker(
+          child: MaterialApp(
+            theme: monoTheme(MonoPalette.dark),
+            home: Scaffold(
+              body: TvBrowseRail(focusMemory: focusMemory, hubs: hubs, iconForHub: (_, _) => Icons.movie),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final position = _verticalRailPosition(tester);
+    expect(position.maxScrollExtent, greaterThan(0));
+    final pointer = TestPointer(1, PointerDeviceKind.mouse);
+    await tester.sendEventToBinding(pointer.hover(tester.getCenter(find.byType(MediaCard).first)));
+    final rowPosition = Scrollable.of(tester.element(find.byType(MediaCard).first)).position;
+    await tester.sendEventToBinding(pointer.scroll(const Offset(120, 0)));
+    await tester.pump();
+    expect(rowPosition.pixels, greaterThan(0));
+    expect(position.pixels, 0);
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
+    await tester.pump();
+    expect(position.pixels, greaterThan(0));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -120)));
+    await tester.pump();
+    expect(position.pixels, 0);
   });
 
   testWidgets('low-end snapshot optimization preserves vertical scroll animation', (tester) async {
