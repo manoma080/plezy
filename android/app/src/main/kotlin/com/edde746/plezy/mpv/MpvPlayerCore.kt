@@ -1576,7 +1576,7 @@ class MpvPlayerCore private constructor(
             // Do not restore a direct decoder until the outgoing GPU VO has
             // actually been replaced. A newer equalizer write wins here.
             val equalizerActive = synchronized(equalizerValues) { equalizerValues.values.any { it != 0.0 } }
-            if (!equalizerActive) setEqualizerCopyBack(false)
+            if (!equalizerActive && target == null && activeGpuVoTarget == null) setEqualizerCopyBack(false)
             if (p == null) return@withLock
             applyRenderTier(p, glVoActive = target != null)
             applySurfaceSizeInternal(p, force = true)
@@ -2820,10 +2820,8 @@ class MpvPlayerCore private constructor(
     // the next file drops the last requirement.
     if (name == "hwdec") {
       submitMpvOperation(writeOperations, "decoder preference", { onComplete?.invoke(it) }) {
-        // A parked value never reaches mpv's parser, so reject unknown Android
-        // decoder names before saving it for a later restoration.
-        val allowed = setOf("no", "yes", "auto", "auto-safe", "auto-unsafe", "auto-copy", "auto-copy-safe", "auto-copy-unsafe", "mediacodec", "mediacodec-copy")
-        require(value.split(',').all { it in allowed }) { "Unsupported hwdec preference: $value" }
+        // mpv accepts a string list, including codec-qualified and future
+        // decoder names. Do not substitute a narrower Android allowlist.
         if (!hwdecHeld) writeProperty(name, effectiveHwdec(value))
         lastRequestedHwdec = value
         if (hwdecHeld || equalizerCopyBack) parkedHwdec.set(value)
@@ -2931,7 +2929,7 @@ class MpvPlayerCore private constructor(
           setGpuVoRequirement("video-equalizer", active)
           // If a renderer change is pending, its completion performs the
           // restore. Surface creation may delay that change indefinitely.
-          if (!active && activeGpuVoTarget == appliedGpuVoTarget) setEqualizerCopyBack(false)
+          if (!active && activeGpuVoTarget == null && appliedGpuVoTarget == null) setEqualizerCopyBack(false)
         }
       } else {
         publicPauseWriteMutex.withLock {
