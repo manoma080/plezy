@@ -34,8 +34,20 @@ class _MockPlayerState extends State<MockPlayer> {
     start();
   }
 
+  Future<void> logRoute(String label) async {
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final hwdec = await player.getProperty('hwdec-current');
+    final vo = await player.getProperty('current-vo');
+    final pause = await player.getProperty('pause');
+    debugPrint('MOCK_ROUTE $label hwdec-current=$hwdec current-vo=$vo pause=$pause');
+  }
+
   Future<void> start() async {
     try {
+      await player.setProperty(
+        'hwdec',
+        const String.fromEnvironment('MOCK_HWDEC', defaultValue: 'mediacodec,mediacodec-copy'),
+      );
       await equalizer.restore();
       await player.setProperty('loop-file', 'inf');
       final directory = await getTemporaryDirectory();
@@ -43,6 +55,7 @@ class _MockPlayerState extends State<MockPlayer> {
       final sample = await rootBundle.load('assets/equalizer-sample.mp4');
       await file.writeAsBytes(sample.buffer.asUint8List(sample.offsetInBytes, sample.lengthInBytes));
       await player.open(Media(file.path));
+      await logRoute('opened');
       if (mounted) setState(() => status = 'Playing');
     } catch (e) {
       if (mounted) setState(() => status = '$e');
@@ -62,7 +75,13 @@ class _MockPlayerState extends State<MockPlayer> {
     body: Column(
       children: [
         SizedBox(height: 240, child: Video(player: player)),
-        TextButton(onPressed: () => player.playOrPause(), child: const Text('Pause / play')),
+        TextButton(
+          onPressed: () async {
+            await player.playOrPause();
+            await logRoute('pause/play');
+          },
+          child: const Text('Pause / play'),
+        ),
         Expanded(
           child: ColoredBox(
             color: Colors.white,
@@ -80,6 +99,9 @@ class _MockPlayerState extends State<MockPlayer> {
                         onChanged: (value) async {
                           await equalizer.set(control, value.round());
                           if (mounted) setState(() {});
+                        },
+                        onChangeEnd: (value) {
+                          logRoute('${control.name}=${value.round()}');
                         },
                       ),
                     ],
