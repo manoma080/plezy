@@ -22,10 +22,11 @@ class MockPlayer extends StatefulWidget {
 
 class _MockPlayerState extends State<MockPlayer> {
   final player = Player(useExoPlayer: false);
-  late final equalizer = VideoEqualizer(
+  late final equalizer = VideoEqualizer.forPlayer(
+    player,
     read: (key) => widget.settings.readInt(key),
     write: widget.settings.writeInt,
-    apply: (property, value) => player.setProperty(property, '$value'),
+
   );
   String status = 'Opening';
   @override

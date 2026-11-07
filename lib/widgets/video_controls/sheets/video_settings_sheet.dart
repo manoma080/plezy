@@ -816,10 +816,10 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
     return context.tryGetMediaClientForServer(serverIdOrNull(_state.serverId));
   }
 
-  VideoEqualizer get _equalizer => VideoEqualizer(
+  VideoEqualizer get _equalizer => VideoEqualizer.forPlayer(
+    widget.player,
     read: (key) => SettingsService.instance.readInt(key),
     write: SettingsService.instance.writeInt,
-    apply: (property, value) => widget.player.setProperty(property, value.toString()),
   );
 
   Widget _buildEqualizerView() {

@@ -1667,6 +1667,31 @@ class MpvPlayerPluginTest {
   }
 
   @Test
+  fun pausedSeekableVideoRefreshesWithoutWritingPause() = kotlinx.coroutines.runBlocking {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    val writes = mutableListOf<Pair<String, String>>()
+    val commands = mutableListOf<List<String>>()
+    val properties = mutableMapOf("pause" to "yes", "seekable" to "yes", "video-params/w" to "1920")
+    val core = MpvPlayerCore(activity, false, { name, value -> writes.add(name to value) }, { args ->
+      commands.add(args.toList())
+      null
+    })
+    core.propertyReaderOverride = { properties[it] }
+    core.refreshPausedVideoAfterVoTransition()
+    assertEquals(listOf(listOf("seek", "0", "relative", "exact")), commands)
+    assertTrue(writes.isEmpty())
+    commands.clear()
+    for ((key, value) in listOf("pause" to "no", "seekable" to "no", "video-params/w" to null)) {
+      val original = properties[key]
+      if (value == null) properties.remove(key) else properties[key] = value
+      core.refreshPausedVideoAfterVoTransition()
+      if (original != null) properties[key] = original
+    }
+    assertTrue(commands.isEmpty())
+    assertTrue(writes.isEmpty())
+  }
+
+  @Test
   fun neutralEqualizerKeepsCopyBackUntilOtherGpuReasonEnds() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()

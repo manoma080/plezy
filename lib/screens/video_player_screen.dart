@@ -1846,10 +1846,10 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
       await currentPlayer.configureSubtitleFonts();
       await currentPlayer.setProperty('sub-ass', 'yes'); // Enable libass
       if (currentPlayer.playerType == 'mpv') {
-        final equalizer = VideoEqualizer(
+        final equalizer = VideoEqualizer.forPlayer(
+          currentPlayer,
           read: (key) => settingsService.readInt(key),
           write: settingsService.writeInt,
-          apply: (property, value) => currentPlayer.setProperty(property, value.toString()),
         );
         try {
           await equalizer.restore();
