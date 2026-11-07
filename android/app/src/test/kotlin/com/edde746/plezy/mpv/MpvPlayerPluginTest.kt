@@ -1692,7 +1692,7 @@ class MpvPlayerPluginTest {
   }
 
   @Test
-  fun neutralEqualizerKeepsCopyBackUntilOtherGpuReasonEnds() {
+  fun neutralEqualizerKeepsGpuUntilOtherGpuReasonEnds() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()
     val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value -> writes.add(name to value) })
@@ -1708,15 +1708,14 @@ class MpvPlayerPluginTest {
     awaitCondition { writes.contains("vo" to "gpu") }
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_SHADERS, true)
     set("saturation", "0")
-    assertEquals("mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
+    assertEquals("mediacodec", writes.filter { it.first == "hwdec" }.last().second)
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_SHADERS, false)
-    awaitCondition { writes.filter { it.first == "hwdec" }.last().second == "mediacodec" }
-    val ordered = writes.toList()
-    assertTrue(ordered.lastIndexOf("vo" to "mediacodec") < ordered.lastIndexOf("hwdec" to "mediacodec"))
+    awaitCondition { writes.contains("vo" to "mediacodec") }
+    assertEquals(listOf("mediacodec"), writes.filter { it.first == "hwdec" }.map { it.second })
   }
 
   @Test
-  fun neutralEqualizerKeepsCopyBackAcrossGpuRendererChange() {
+  fun neutralEqualizerKeepsDecoderAcrossGpuRendererChange() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()
     val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value -> writes.add(name to value) })
@@ -1733,11 +1732,11 @@ class MpvPlayerPluginTest {
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_DV_RESHAPE, true)
     awaitCondition { writes.contains("vo" to "gpu-next") }
     set("saturation", "0")
-    assertEquals("mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
+    assertEquals("mediacodec", writes.filter { it.first == "hwdec" }.last().second)
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_TONE_MAP, true)
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_DV_RESHAPE, false)
     awaitCondition { writes.count { it == ("vo" to "gpu") } >= 2 }
-    assertEquals("mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
+    assertEquals("mediacodec", writes.filter { it.first == "hwdec" }.last().second)
     invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_TONE_MAP, false)
     awaitCondition { writes.filter { it.first == "hwdec" }.last().second == "mediacodec" }
   }
@@ -1779,7 +1778,7 @@ class MpvPlayerPluginTest {
   }
 
   @Test
-  fun codecQualifiedDecoderPreferenceIsParkedWhileEqualizerIsActive() {
+  fun codecQualifiedDecoderPreferenceIsAppliedWhileEqualizerIsActive() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()
     val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value ->
@@ -1802,29 +1801,7 @@ class MpvPlayerPluginTest {
   }
 
   @Test
-  fun equalizerRetriesCopyBackAfterDecoderWriteFailure() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-    val attempts = java.util.concurrent.atomic.AtomicInteger(0)
-    val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value ->
-      if (name == "hwdec" && value == "mediacodec-copy" && attempts.incrementAndGet() == 1) {
-        throw IllegalStateException("injected decoder failure")
-      }
-    })
-    setBoolean(core, "isInitialized", true)
-    fun set(name: String, value: String): Result<Unit> {
-      val result = java.util.concurrent.atomic.AtomicReference<Result<Unit>>()
-      core.setProperty(name, value) { result.set(it) }
-      awaitCondition { result.get() != null }
-      return result.get()
-    }
-    assertTrue(set("hwdec", "mediacodec").isSuccess)
-    assertTrue(set("saturation", "50").isFailure)
-    assertTrue(set("saturation", "50").isSuccess)
-    assertEquals(2, attempts.get())
-  }
-
-  @Test
-  fun equalizerRequestsCopyBackInsteadOfDirectMediaCodec() {
+  fun equalizerKeepsRequestedDirectMediaCodecWhileUsingGpu() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()
     val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value ->
@@ -1835,11 +1812,20 @@ class MpvPlayerPluginTest {
     val completed = java.util.concurrent.atomic.AtomicBoolean(false)
     core.setProperty("hwdec", "mediacodec,mediacodec-copy") { completed.set(true) }
     awaitCondition { completed.get() }
-    completed.set(false)
-    core.setProperty("saturation", "50") { completed.set(true) }
-    awaitCondition { completed.get() }
+    for (name in listOf("brightness", "saturation", "gamma", "contrast", "hue", "sharpen")) {
+      completed.set(false)
+      core.setProperty(name, "2") { assertTrue(it.isSuccess); completed.set(true) }
+      awaitCondition { completed.get() }
+    }
     awaitCondition { writes.any { it == ("vo" to "gpu") } }
-    assertTrue("equalizer must request copy-back", writes.any { it == ("hwdec" to "mediacodec-copy") })
+    assertEquals(listOf("mediacodec,mediacodec-copy"), writes.filter { it.first == "hwdec" }.map { it.second })
+    for (name in listOf("brightness", "saturation", "gamma", "contrast", "hue", "sharpen")) {
+      completed.set(false)
+      core.setProperty(name, "0") { assertTrue(it.isSuccess); completed.set(true) }
+      awaitCondition { completed.get() }
+    }
+    awaitCondition { writes.contains("vo" to "mediacodec") }
+    assertEquals(listOf("mediacodec,mediacodec-copy"), writes.filter { it.first == "hwdec" }.map { it.second })
   }
 
   @Test
@@ -1858,7 +1844,7 @@ class MpvPlayerPluginTest {
     set("hwdec", "mediacodec,mediacodec-copy")
     set("hue", "25")
     set("saturation", "0")
-    assertEquals("mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
+    assertEquals("mediacodec,mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
     set("hwdec", "no")
     assertEquals("no", writes.filter { it.first == "hwdec" }.last().second)
     set("hwdec", "no,mediacodec")
@@ -1866,10 +1852,7 @@ class MpvPlayerPluginTest {
     set("hwdec", "mediacodec,mediacodec-copy")
     set("hue", "0")
     awaitCondition { writes.filter { it.first == "hwdec" }.last().second == "mediacodec,mediacodec-copy" }
-    val ordered = writes.toList()
-    assertTrue("plane VO must be restored before the direct decoder",
-      ordered.lastIndexOf("vo" to "mediacodec") < ordered.lastIndexOf("hwdec" to "mediacodec,mediacodec-copy") &&
-        ordered.contains("vo" to "mediacodec"))
+    awaitCondition { writes.contains("vo" to "mediacodec") }
     assertEquals("mediacodec,mediacodec-copy", writes.filter { it.first == "hwdec" }.last().second)
   }
 

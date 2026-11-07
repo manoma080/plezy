@@ -339,7 +339,6 @@ class MpvPlayerCore private constructor(
   private val hwdecHoldReasons = LinkedHashSet<String>()
 
   @Volatile private var hwdecHeld: Boolean = false
-  private var equalizerCopyBack = false
   private var lastRequestedHwdec: String? = null
 
   private val parkedHwdec = java.util.concurrent.atomic.AtomicReference<String?>()
@@ -955,7 +954,6 @@ class MpvPlayerCore private constructor(
         hwdecHeld = false
       }
       parkedHwdec.set(null)
-      equalizerCopyBack = false
       lastRequestedHwdec = null
       synchronized(cheapRenderRestore) {
         cheapRenderRestore.clear()
@@ -1573,10 +1571,6 @@ class MpvPlayerCore private constructor(
               }
             }
             appliedGpuVoTarget = target
-            // Do not restore a direct decoder until the outgoing GPU VO has
-            // actually been replaced. A newer equalizer write wins here.
-            val equalizerActive = synchronized(equalizerValues) { equalizerValues.values.any { it != 0.0 } }
-            if (!equalizerActive && target == null && activeGpuVoTarget == null) setEqualizerCopyBack(false)
             if (p == null) return@withLock
             applyRenderTier(p, glVoActive = target != null)
             applySurfaceSizeInternal(p, force = true)
@@ -1788,37 +1782,16 @@ class MpvPlayerCore private constructor(
     }
     when (transition) {
       true -> {
-        if (!equalizerCopyBack) parkedHwdec.set(lastRequestedHwdec ?: p.getString("hwdec") ?: "no")
+        parkedHwdec.set(lastRequestedHwdec ?: p.getString("hwdec") ?: "no")
         writeProperty("hwdec", "no")
       }
       false -> {
-        val restore = if (equalizerCopyBack) parkedHwdec.get() else parkedHwdec.getAndSet(null)
-        if (restore != null) writeProperty("hwdec", effectiveHwdec(restore))
+        val restore = parkedHwdec.getAndSet(null)
+        if (restore != null) writeProperty("hwdec", restore)
       }
       null -> {}
     }
     return true
-  }
-
-  private fun effectiveHwdec(requested: String): String = when {
-    hwdecHeld -> "no"
-    equalizerCopyBack && requested.substringBefore(',') != "no" -> "mediacodec-copy"
-    else -> requested
-  }
-
-  // Called only on the serialized write queue, like the per-file holds.
-  private suspend fun setEqualizerCopyBack(active: Boolean) {
-    if (!usesMediaCodecVo || active == equalizerCopyBack) return
-    if (active && !hwdecHeld) {
-      parkedHwdec.set(lastRequestedHwdec ?: player?.getString("hwdec") ?: "no")
-    }
-    val requested = parkedHwdec.get()
-    if (!hwdecHeld && requested != null) {
-      val target = if (active && requested.substringBefore(',') != "no") "mediacodec-copy" else requested
-      writeProperty("hwdec", target)
-    }
-    equalizerCopyBack = active
-    if (!active && !hwdecHeld) parkedHwdec.set(null)
   }
 
   /**
@@ -2842,9 +2815,9 @@ class MpvPlayerCore private constructor(
       submitMpvOperation(writeOperations, "decoder preference", { onComplete?.invoke(it) }) {
         // mpv accepts a string list, including codec-qualified and future
         // decoder names. Do not substitute a narrower Android allowlist.
-        if (!hwdecHeld) writeProperty(name, effectiveHwdec(value))
+        if (!hwdecHeld) writeProperty(name, value)
         lastRequestedHwdec = value
-        if (hwdecHeld || equalizerCopyBack) parkedHwdec.set(value)
+        if (hwdecHeld) parkedHwdec.set(value)
       }
       return
     }
@@ -2945,11 +2918,7 @@ class MpvPlayerCore private constructor(
             equalizerValues[name] = value.toDoubleOrNull() ?: 0.0
             equalizerValues.values.any { it != 0.0 }
           }
-          if (active) setEqualizerCopyBack(true)
           setGpuVoRequirement("video-equalizer", active)
-          // If a renderer change is pending, its completion performs the
-          // restore. Surface creation may delay that change indefinitely.
-          if (!active && activeGpuVoTarget == null && appliedGpuVoTarget == null) setEqualizerCopyBack(false)
         }
       } else {
         publicPauseWriteMutex.withLock {
