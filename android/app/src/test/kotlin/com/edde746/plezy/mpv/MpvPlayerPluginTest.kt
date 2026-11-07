@@ -1857,6 +1857,55 @@ class MpvPlayerPluginTest {
   }
 
   @Test
+  @Config(instrumentedPackages = ["com.edde746.mpv"])
+  fun overlappingSoftwareHoldsRestoreLatestPreferenceWithEqualizerActive() = kotlinx.coroutines.runBlocking {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    val writes = ConcurrentLinkedQueue<Pair<String, String>>()
+    val core = MpvPlayerCore(activity, audioOnly = false, propertyWriter = { name, value -> writes.add(name to value) })
+    setBoolean(core, "isInitialized", true)
+    val player = fakeNativePlayer()
+    val holdMethod = MpvPlayerCore::class.java.getDeclaredMethod(
+      "holdHwdec", MpvPlayer::class.java, String::class.java, Boolean::class.javaPrimitiveType,
+      kotlin.coroutines.Continuation::class.java
+    ).apply { isAccessible = true }
+    suspend fun hold(reason: String, active: Boolean): Boolean =
+      kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn { continuation ->
+        holdMethod.invoke(core, player, reason, active, continuation)
+      }
+    fun set(name: String, value: String) {
+      val result = AtomicReference<Result<Unit>>()
+      core.setProperty(name, value) { result.set(it) }
+      awaitCondition { result.get() != null }
+      assertTrue(result.get().isSuccess)
+    }
+    fun decoderWrites() = writes.filter { it.first == "hwdec" }.map { it.second }
+
+    set("hwdec", "mediacodec")
+    set("saturation", "50")
+    awaitCondition { writes.contains("vo" to "gpu") }
+    assertTrue(hold(GpuVoPolicy.REASON_DV_RESHAPE, true))
+    invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_DV_RESHAPE, true)
+    awaitCondition { writes.contains("vo" to "gpu-next") }
+    assertTrue(hold(GpuVoPolicy.REASON_CODEC_SW_DECODE, true))
+    invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_CODEC_SW_DECODE, true)
+    set("hwdec", "no")
+    set("hwdec", "h264-mediacodec,mediacodec-copy")
+    assertEquals(listOf("mediacodec", "no"), decoderWrites())
+
+    assertTrue(hold(GpuVoPolicy.REASON_DV_RESHAPE, false))
+    invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_DV_RESHAPE, false)
+    awaitCondition { writes.count { it == ("vo" to "gpu") } >= 2 }
+    assertEquals(listOf("mediacodec", "no"), decoderWrites())
+    assertTrue(hold(GpuVoPolicy.REASON_CODEC_SW_DECODE, false))
+    invokeSetGpuVoRequirement(core, GpuVoPolicy.REASON_CODEC_SW_DECODE, false)
+    assertEquals(listOf("mediacodec", "no", "h264-mediacodec,mediacodec-copy"), decoderWrites())
+    assertFalse("equalizer must retain GPU after the final hold", writes.contains("vo" to "mediacodec"))
+    set("saturation", "0")
+    awaitCondition { writes.contains("vo" to "mediacodec") }
+    assertEquals(listOf("mediacodec", "no", "h264-mediacodec,mediacodec-copy"), decoderWrites())
+  }
+
+  @Test
   fun equalizerDoesNotOverrideAnExistingSoftwareDecodeHold() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
     val writes = ConcurrentLinkedQueue<Pair<String, String>>()
