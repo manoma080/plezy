@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 
 import '../mpv/player/player.dart';
 import '../utils/app_logger.dart';
+import 'shader_chain_coordinator.dart';
 
 /// Generates and manages an ambient lighting GLSL shader that fills letterbox/pillarbox
 /// bars with a blurred, dimmed version of the video edges.
@@ -42,71 +43,81 @@ class AmbientLightingService {
 
   bool get isSupported => _player.playerType == 'mpv';
 
-  /// Enable ambient lighting effect.
-  ///
-  /// [videoAspect] - the source video's display aspect ratio (width/height).
-  Future<void> enable(double videoAspect) async {
+  /// The committed ambient path, used when composing the complete chain.
+  String? get activeShaderPath => _enabled ? _shaderPath : null;
+
+  Future<void> enable(double videoAspect) => ShaderChainCoordinator.forPlayer(_player).run(() async {
     if (!isSupported) return;
-
+    if (_enabled) {
+      await _updateVideoAspect(videoAspect);
+      return;
+    }
+    final coordinator = ShaderChainCoordinator.forPlayer(_player);
+    var shaderInstalled = false;
+    var subtitleChanged = false;
+    var fillAttempted = false;
+    String? oldSubtitleAspect;
     try {
+      oldSubtitleAspect = await _player.getProperty('sub-video-rect-aspect');
       _shaderPath ??= await _writeShaderToTemp(_generateShader());
-
-      appLogger.d('AmbientLightingService: Shader path: $_shaderPath');
-
-      // First, so a libmpv without the patch refuses before anything on
-      // screen changes.
       await _player.setProperty('sub-video-rect-aspect', videoAspect.toString());
-
-      // Shader before fill: while mpv still letterboxes, the rect it scales
-      // into already has the picture's aspect, so the composite reproduces
-      // the plain letterboxed frame and no frame shows the stretched picture
-      // without its composite.
-      await _player.command(['change-list', 'glsl-shaders', 'append', _shaderPath!]);
-
+      subtitleChanged = true;
+      await coordinator.replace(remove: const [], add: [_shaderPath!]);
+      shaderInstalled = true;
+      fillAttempted = true;
       await _player.setProperty('keepaspect', 'no');
-
       _enabled = true;
-
-      appLogger.d('AmbientLightingService: Enabled (video=$videoAspect)');
     } catch (e, st) {
+      // A failed property write may already have taken effect. Restore the
+      // safe aspect independently of shader cleanup, which may also fail.
+      if (fillAttempted) {
+        try {
+          await _player.setProperty('keepaspect', 'yes');
+        } catch (rollback, stack) {
+          appLogger.w('AmbientLightingService: Aspect rollback failed', error: rollback, stackTrace: stack);
+        }
+      }
+      try {
+        if (shaderInstalled) await coordinator.replace(remove: [_shaderPath!], add: const []);
+      } catch (rollback, stack) {
+        appLogger.w('AmbientLightingService: Shader rollback failed', error: rollback, stackTrace: stack);
+      }
+      try {
+        if (subtitleChanged) await _player.setProperty('sub-video-rect-aspect', oldSubtitleAspect ?? 'no');
+      } catch (rollback, stack) {
+        appLogger.w('AmbientLightingService: Subtitle rollback failed', error: rollback, stackTrace: stack);
+      }
       appLogger.w('AmbientLightingService: Failed to enable', error: e, stackTrace: st);
     }
-  }
+  });
 
-  /// Disable ambient lighting effect and restore normal letterboxing.
-  Future<void> disable() async {
+  Future<void> disable() => ShaderChainCoordinator.forPlayer(_player).run(() async {
     if (!_enabled) return;
-
+    final coordinator = ShaderChainCoordinator.forPlayer(_player);
+    var letterboxed = false;
+    var shaderRemoved = false;
     try {
-      // Letterbox first, mirroring [enable]: the composite then reproduces
-      // the plain letterboxed frame, so removing the shader is invisible.
       await _player.setProperty('keepaspect', 'yes');
-
-      if (_shaderPath != null) {
-        await _player.command(['change-list', 'glsl-shaders', 'remove', _shaderPath!]);
-      }
-
+      letterboxed = true;
+      await coordinator.replace(remove: [_shaderPath!], add: const []);
+      shaderRemoved = true;
       await _player.setProperty('sub-video-rect-aspect', 'no');
-
       _enabled = false;
-
-      appLogger.d('AmbientLightingService: Disabled');
     } catch (e, st) {
+      try {
+        if (shaderRemoved) await coordinator.replace(remove: const [], add: [_shaderPath!]);
+        if (letterboxed) await _player.setProperty('keepaspect', 'no');
+      } catch (rollback, stack) {
+        appLogger.w('AmbientLightingService: Disable rollback failed', error: rollback, stackTrace: stack);
+      }
       appLogger.w('AmbientLightingService: Failed to disable', error: e, stackTrace: st);
     }
-  }
+  });
 
-  /// Re-append the ambient lighting shader to the chain.
-  /// Called by ShaderService after it rebuilds the shader chain (clr + append).
-  Future<void> reappendShader() async {
-    if (!_enabled || _shaderPath == null) return;
-    await _player.command(['change-list', 'glsl-shaders', 'append', _shaderPath!]);
-  }
+  Future<void> updateVideoAspect(double videoAspect) =>
+      ShaderChainCoordinator.forPlayer(_player).run(() => _updateVideoAspect(videoAspect));
 
-  /// Re-point subtitle placement at a new picture: the shader adapts to the
-  /// swapped item through `input_size`, but `sub-video-rect-aspect` was
-  /// written from the item [enable] saw.
-  Future<void> updateVideoAspect(double videoAspect) async {
+  Future<void> _updateVideoAspect(double videoAspect) async {
     if (!_enabled) return;
     try {
       await _player.setProperty('sub-video-rect-aspect', videoAspect.toString());

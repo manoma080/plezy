@@ -25,6 +25,16 @@ void main() {
     temporaryRoot.deleteSync(recursive: true);
   });
 
+  test('failed fill write restores keepaspect even if shader cleanup fails', () async {
+    final player = _AmbientPlayer()
+      ..failFillAfterWrite = true
+      ..failShaderRemoval = true;
+    final service = AmbientLightingService(player);
+    await service.enable(1.5);
+    expect(service.isEnabled, isFalse);
+    expect(player.keepaspect, 'yes');
+  });
+
   test('enable hands mpv the picture aspect for subtitle placement before stretching the frame', () async {
     final player = _AmbientPlayer();
     final service = AmbientLightingService(player);
@@ -87,6 +97,10 @@ class _AmbientPlayer implements Player {
   final List<(String, String)> propertyWrites = [];
   final List<List<String>> commands = [];
   Object? setPropertyError;
+  bool failFillAfterWrite = false;
+  bool failShaderRemoval = false;
+  String keepaspect = 'yes';
+  final shaderChain = <String>[];
 
   @override
   PlayerState get state => const PlayerState();
@@ -95,15 +109,28 @@ class _AmbientPlayer implements Player {
   String get playerType => 'mpv';
 
   @override
-  Future<void> command(List<String> command) async => commands.add(command);
+  Future<void> command(List<String> command) async {
+    commands.add(command);
+    if (command[2] == 'append') shaderChain.add(command[3]);
+    if (command[2] == 'remove' && failShaderRemoval) throw StateError('remove failed');
+    if (command[2] == 'remove') shaderChain.remove(command[3]);
+  }
 
   @override
   Future<void> setProperty(String name, String value) {
     propertyWrites.add((name, value));
     final error = setPropertyError;
     if (error != null) return Future<void>.error(error);
+    if (name == 'keepaspect') {
+      keepaspect = value;
+      if (value == 'no' && failFillAfterWrite) return Future<void>.error(StateError('fill failed after write'));
+    }
     return Future<void>.value();
   }
+
+  @override
+  Future<String?> getProperty(String name) async =>
+      name == 'glsl-shaders' ? shaderChain.join(Platform.isWindows ? ';' : ':') : null;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

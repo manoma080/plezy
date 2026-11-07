@@ -1564,7 +1564,7 @@ class MpvPlayerCore private constructor(
               // surfaceCreated will retry; the GPU renderer remains usable.
               return@withLock
             }
-            rebuildVideoOutput(p) {
+            val parked = rebuildVideoOutput(p) {
               if (p != null && surface != null) {
                 attachSurfaces(p, surface, osd, target ?: "mediacodec")
                 attachedOsdSurface = osd
@@ -1581,6 +1581,11 @@ class MpvPlayerCore private constructor(
             applyRenderTier(p, glVoActive = target != null)
             applySurfaceSizeInternal(p, force = true)
             if (target == null) applyVideoRectLayout(force = true)
+            // A rebuilt decoder can leave the new surface without a frame when
+            // playback is paused. Ask mpv to redraw the current position only
+            // after the new output is installed, without changing pause state.
+            // Do not seek live/non-seekable streams or a player without video.
+            if (surface != null && !parked) refreshPausedVideoAfterVoTransition()
           }
           // View changes can synchronously destroy a Surface. The ownership
           // transaction is finished and no native operation waits for main.
@@ -1869,6 +1874,20 @@ class MpvPlayerCore private constructor(
     return tracks.firstOrNull { it.optLong("id") == id }
   }
 
+  internal suspend fun refreshPausedVideoAfterVoTransition() {
+    if (readProperty("pause") != "yes" || readProperty("seekable") != "yes" ||
+      readProperty("video-params/w") == null
+    ) return
+    try {
+      runCommand("seek", "0", "relative", "exact")
+      Log.i(TAG, "Refreshed paused video after VO transition")
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.w(TAG, "Could not refresh paused video after VO transition", e)
+    }
+  }
+
   /**
    * Runs [block] — a `vo` write, or a surface handoff under a GL renderer,
    * each of which makes mpv rebuild the video chain — with the video track
@@ -1889,11 +1908,11 @@ class MpvPlayerCore private constructor(
    * here once the track is back, so the parked rebuild ends where mpv's own
    * would.
    */
-  private suspend fun rebuildVideoOutput(p: MpvPlayer?, block: suspend () -> Unit) {
+  private suspend fun rebuildVideoOutput(p: MpvPlayer?, block: suspend () -> Unit): Boolean {
     val vid = if (p != null && needsParkedRebuild(p)) p.getString("vid")?.toLongOrNull() else null
     if (vid == null) {
       block()
-      return
+      return false
     }
     Log.i(TAG, "Parking video track $vid across the output rebuild (BigOcean AV1)")
     writeProperty("vid", "no")
@@ -1903,6 +1922,7 @@ class MpvPlayerCore private constructor(
       writeProperty("vid", vid.toString())
       runCommand("seek", "0", "relative", "exact")
     }
+    return true
   }
 
   /**

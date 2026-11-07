@@ -16,6 +16,7 @@ import 'package:plezy/media/media_server_client.dart';
 import 'package:plezy/media/media_source_info.dart';
 import 'package:plezy/media/server_capabilities.dart';
 import 'package:plezy/models/transcode_quality_preset.dart';
+import 'package:plezy/models/shader_preset.dart';
 import 'package:plezy/mpv/player/player_base.dart';
 import 'package:plezy/providers/account_preferences_controller.dart';
 import 'package:plezy/providers/companion_remote_provider.dart';
@@ -66,6 +67,7 @@ void main() {
     PathProviderPlatform.instance = FakePathProvider(tmpRoot);
     await installHdrStartupHarness();
     await SettingsService.instance.write(SettingsService.ambientLighting, true);
+    await SettingsService.instance.write(SettingsService.globalShaderPreset, ShaderPreset.nvscalerDefault.id);
     DownloadStorageService.resetForTesting();
     await DownloadStorageService.instance.initialize(SettingsService.instance);
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -114,6 +116,7 @@ void main() {
     final shaderCommands = <List<String>>[];
     final propertyWrites = <(String, String)>[];
     var loadfiles = 0;
+    final shaderList = <String>[];
     var firstFrameDelivered = false;
     bool? revealedWhenAmbientShaderLanded;
 
@@ -134,6 +137,7 @@ void main() {
             // mpv only knows the displayed picture size once a decoded frame
             // has reached the VO; until then the property is unavailable.
             final name = (call.arguments as Map)['name'];
+            if (name == 'glsl-shaders') return shaderList.join(Platform.isWindows ? ';' : ':');
             if (!firstFrameDelivered) return null;
             return switch (name) {
               'dwidth' => '1920',
@@ -153,6 +157,8 @@ void main() {
               player.handlePlayerEvent('file-loaded', {'sourceId': loadfiles});
             } else if (args.length >= 2 && args[0] == 'change-list' && args[1] == 'glsl-shaders') {
               shaderCommands.add(args);
+              if (args[2] == 'append') shaderList.add(args[3]);
+              if (args[2] == 'remove') shaderList.remove(args[3]);
               if (args[2] == 'append' && args[3].endsWith('ambient_lighting.glsl')) {
                 revealedWhenAmbientShaderLanded = revealed()?.value;
               }
@@ -197,16 +203,15 @@ void main() {
           ).push(navigator.currentState!),
         );
 
-        // The start flow applies the saved shader preset (a chain clear) in
-        // the same hook that used to restore ambient lighting; once it has
-        // landed, any restore attempted there has already read null geometry.
+        // The saved preset's append marks the startup hook without relying on
+        // a global chain clear. Ambient still must wait for decoded geometry.
         await pumpUntil(
           tester,
-          () => shaderCommands.any((args) => args[2] == 'clr'),
+          () => shaderCommands.any((args) => args[2] == 'append'),
           describe: () => 'loadfiles=$loadfiles shaderCommands=$shaderCommands',
         );
         await tester.pump();
-        expect(shaderCommands.where((args) => args[2] == 'append'), isEmpty);
+        expect(shaderCommands.where((args) => args[2] == 'append'), hasLength(1));
         expect(revealed()?.value, isFalse, reason: 'the frame stays behind the loading UI until mpv presents one');
 
         firstFrameDelivered = true;
@@ -221,7 +226,9 @@ void main() {
           describe: () => 'shaderCommands=$shaderCommands writes=$propertyWrites',
         );
 
-        final appends = shaderCommands.where((args) => args[2] == 'append').toList();
+        final appends = shaderCommands
+            .where((args) => args[2] == 'append' && args[3].endsWith('ambient_lighting.glsl'))
+            .toList();
         expect(appends, hasLength(1), reason: 'the persisted setting applies exactly once at start');
         expect(appends.single[3], endsWith('ambient_lighting.glsl'));
         expect(

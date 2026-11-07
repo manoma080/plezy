@@ -357,7 +357,7 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
             }
 
             // Shader Service (MPV only)
-            _shaderService = ShaderService(currentPlayer);
+            _shaderService = ShaderService.forPlayer(currentPlayer);
             if (_shaderService!.isSupported) {
               // Ambient Lighting Service
               _ambientLightingService = AmbientLightingService(currentPlayer);

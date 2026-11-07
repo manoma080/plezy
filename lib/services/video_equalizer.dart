@@ -1,3 +1,8 @@
+import 'dart:io';
+
+import '../mpv/player/player.dart';
+import 'shader_service.dart';
+
 /// The libmpv equalizer properties and their integer UI ranges.
 enum VideoEqualizerControl {
   brightness('brightness', 100),
@@ -18,6 +23,25 @@ enum VideoEqualizerControl {
 /// Coordinates persistent values with a live libmpv property sink.
 class VideoEqualizer {
   VideoEqualizer({required this.read, required this.write, required this.apply});
+
+  static final Expando<VideoEqualizer> _players = Expando<VideoEqualizer>();
+
+  /// Restore and live UI controls for one player share the same queue and sink.
+  static VideoEqualizer forPlayer(
+    Player player, {
+    required int? Function(String) read,
+    required Future<void> Function(String, int) write,
+  }) => _players[player] ??= VideoEqualizer(
+    read: read,
+    write: write,
+    apply: (property, value) async {
+      if (Platform.isAndroid && (property == 'saturation' || property == 'hue')) {
+        await ShaderService.forPlayer(player).setColorControl(property, value);
+      } else {
+        await player.setProperty(property, value.toString());
+      }
+    },
+  );
 
   final int? Function(String key) read;
   final Future<void> Function(String key, int value) write;
