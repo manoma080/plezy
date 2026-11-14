@@ -1358,6 +1358,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
           !(OverlaySheetController.maybeOf(_sheetContext)?.isOpen ?? false),
       onSeek: (direction) {
         if (!_canControlPlayback()) return;
+        if (TvDetectionService.isQuestSync() && !GamepadService.acceptQuestSeek(direction, fromScroll: false)) return;
         final forward = direction == TraversalDirection.right;
         final seconds = SettingsService.instance.read(SettingsService.seekTimeSmall);
         _seekRelative(Duration(seconds: forward ? seconds : -seconds));

@@ -96,6 +96,35 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
 
   void _handlePointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
+    final dx = event.scrollDelta.dx;
+    if (Theme.of(context).platform == TargetPlatform.android &&
+        TvDetectionService.isQuestSync() &&
+        widget.canControl &&
+        dx != 0 &&
+        event.scrollDelta.dy == 0 &&
+        !_sheetIsOpen() &&
+        !_isScreenLocked &&
+        (ModalRoute.of(context)?.isCurrent ?? true)) {
+      // Horizon OS exposes its 2D joystick as Android horizontal scroll.
+      // Let a deeper scrollable claim the signal first. Flutter reverses the
+      // Android HSCROLL sign when producing scrollDelta.
+      GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+        final direction = dx < 0 ? 1 : -1;
+        if (_horizontalScrollSeekCooldown?.isActive == true && _horizontalScrollSeekDirection == direction) return;
+        if (!GamepadService.acceptQuestSeek(
+          direction > 0 ? TraversalDirection.right : TraversalDirection.left,
+          fromScroll: true,
+        )) {
+          return;
+        }
+        _horizontalScrollSeekDirection = direction;
+        _horizontalScrollSeekCooldown?.cancel();
+        _horizontalScrollSeekCooldown = Timer(const Duration(milliseconds: 300), () {});
+        _cancelAutoSkipFromUserInteraction();
+        _seekByWithFeedback(Duration(seconds: direction * _seekTimeSmall));
+      });
+      return;
+    }
     _cancelAutoSkipFromUserInteraction();
     widget.volumeController.adjust(-event.scrollDelta.dy / 20);
     _showControlsFromPointerActivity();

@@ -5,6 +5,7 @@ import '../../media/ids.dart';
 
 import 'package:flutter/gestures.dart'
     show
+        GestureBinding,
         PointerCancelEvent,
         PointerDeviceKind,
         PointerDownEvent,
@@ -855,6 +856,8 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   // Directional key seeking while the chrome is hidden (#1676). Owns the whole
   // key burst — repeats accelerate in place rather than escalating to the
   // timeline — and coalesces it into one absolute seek, like the timeline does.
+  Timer? _horizontalScrollSeekCooldown;
+  int _horizontalScrollSeekDirection = 0;
   late final DebouncedSeekAccumulator _hiddenSeek;
   bool? _hiddenSeekForward;
   int _hiddenSeekRepeatCount = 0;
@@ -1121,6 +1124,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
     _skipButtonDismissTimer?.cancel();
     _singleTapTimer?.cancel();
     _seekThrottle.cancel();
+    _horizontalScrollSeekCooldown?.cancel();
     _hiddenSeek.dispose();
     _edgeAdjustmentTracker.cancel();
     _edgeAdjustmentIndicator.dispose();

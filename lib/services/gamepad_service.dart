@@ -228,6 +228,31 @@ class GamepadService with WindowListener {
 
   static void unregisterRightStickSeek(Object owner) => _seekHandlers.remove(owner);
 
+  // The same physical deflection may arrive over both Android input paths.
+  // Only suppress opposite-path events in the same direction, for 120 ms.
+  static Timer? _questSeekWindow;
+  static TraversalDirection? _questSeekDirection;
+  static bool? _questSeekFromScroll;
+
+  static bool acceptQuestSeek(TraversalDirection direction, {required bool fromScroll}) {
+    if (_questSeekWindow?.isActive == true && _questSeekDirection == direction && _questSeekFromScroll != fromScroll) {
+      return false;
+    }
+    _questSeekWindow?.cancel();
+    _questSeekDirection = direction;
+    _questSeekFromScroll = fromScroll;
+    _questSeekWindow = Timer(const Duration(milliseconds: 120), () {});
+    return true;
+  }
+
+  @visibleForTesting
+  static void debugResetQuestSeekDeduplication() {
+    _questSeekWindow?.cancel();
+    _questSeekWindow = null;
+    _questSeekDirection = null;
+    _questSeekFromScroll = null;
+  }
+
   static const double _stickDeadzone = 0.5;
 
   static const Duration _repeatInitialDelay = Duration(milliseconds: 400);

@@ -15,6 +15,18 @@ const _androidFeatureFireTv = 'amazon.hardware.fire_tv';
 const _androidFeatureTouchscreen = 'android.hardware.touchscreen';
 const _androidFeatureAutomotive = 'android.hardware.type.automotive';
 
+/// Conservative headset identification. Unknown devices fail closed.
+bool detectAndroidQuest({required Iterable<String> features, required String manufacturer, required String model}) {
+  final featureMatch = features.any(
+    (feature) =>
+        feature.toLowerCase().startsWith('oculus.software.') || feature.toLowerCase().startsWith('com.oculus.feature.'),
+  );
+  final maker = manufacturer.trim().toLowerCase();
+  final name = model.trim().toLowerCase();
+  return featureMatch ||
+      ((maker == 'oculus' || maker == 'meta') && (name.contains('quest') || name == 'pacific' || name == 'hollywood'));
+}
+
 class AndroidTvFeatureDetection {
   final bool isTv;
 
@@ -75,6 +87,8 @@ class TvDetectionService {
   static set debugDetectionGate(Future<void>? value) => _singleton.debugGate = value;
   static bool? _debugAppleTVOverride;
   static bool? _debugAutomotiveOverride;
+  static bool? _debugQuestOverride;
+  bool _isQuest = false;
   bool _detected = false;
   bool _forceTv = false;
   bool _isAppleTV = false;
@@ -96,6 +110,16 @@ class TvDetectionService {
 
     final deviceInfo = DeviceInfoPlugin();
     if (Platform.isAndroid) {
+      try {
+        final info = await deviceInfo.androidInfo;
+        _isQuest = detectAndroidQuest(
+          features: info.systemFeatures,
+          manufacturer: info.manufacturer,
+          model: info.model,
+        );
+      } catch (_) {
+        // No positive identification means no headset-specific scroll handling.
+      }
       final nativeDetection = await _getNativeAndroidTvDetection();
       final detection =
           nativeDetection ?? detectAndroidTvFromSystemFeatures((await deviceInfo.androidInfo).systemFeatures);
@@ -191,6 +215,11 @@ class TvDetectionService {
   /// Synchronous Android Automotive OS check (false before initialization).
   static bool isAutomotiveSync() => _debugAutomotiveOverride ?? _singleton.instance?._isAutomotive ?? false;
 
+  static bool isQuestSync() => _debugQuestOverride ?? _singleton.instance?._isQuest ?? false;
+
+  @visibleForTesting
+  static void debugSetQuestOverride(bool? value) => _debugQuestOverride = value;
+
   @visibleForTesting
   static void debugSetAppleTVOverride(bool? value) {
     _debugAppleTVOverride = value;
@@ -206,6 +235,7 @@ class TvDetectionService {
     _singleton.debugReset();
     _debugAppleTVOverride = null;
     _debugAutomotiveOverride = null;
+    _debugQuestOverride = null;
   }
 
   static List<String> tvDetectionReasonsSync() => _singleton.instance?._effectiveDetectionReasons ?? const [];
