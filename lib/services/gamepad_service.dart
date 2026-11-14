@@ -268,6 +268,7 @@ class GamepadService with WindowListener {
     return _keyEventSimulator ??= key_sim.KeyEventSimulatorController(
       deviceType: ui.KeyEventDeviceType.gamepad,
       physicalKeyByLogicalKey: _gamepadPhysicalKeyByLogicalKey,
+      backRouteFallback: true,
       log: _logGamepadDiag,
     );
   }

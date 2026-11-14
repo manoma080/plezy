@@ -45,6 +45,8 @@ class KeyEventSimulatorController {
   final ui.KeyEventDeviceType deviceType;
   final Map<LogicalKeyboardKey, PhysicalKeyboardKey> physicalKeyByLogicalKey;
   final void Function(String) _log;
+  final bool backRouteFallback;
+  bool _backDownConsumed = false;
 
   /// Frames an event may wait for primary focus to leave a route that is no
   /// longer current. A route pushed by the previous event takes focus in the
@@ -60,6 +62,7 @@ class KeyEventSimulatorController {
   KeyEventSimulatorController({
     this.deviceType = ui.KeyEventDeviceType.directionalPad,
     this.physicalKeyByLogicalKey = const {},
+    this.backRouteFallback = false,
     void Function(String)? log,
   }) : _log = log ?? _logKeySimulator;
 
@@ -86,7 +89,10 @@ class KeyEventSimulatorController {
     }
     _schedule((focusNode) {
       _heldFocusNodes[logicalKey] = focusNode;
-      _dispatchKeyEvent(focusNode, _keyDownEvent(logicalKey, _physicalKeyFor(logicalKey)));
+      final result = _dispatchKeyEvent(focusNode, _keyDownEvent(logicalKey, _physicalKeyFor(logicalKey)));
+      if (backRouteFallback && logicalKey == LogicalKeyboardKey.gameButtonB) {
+        _backDownConsumed = result != KeyEventResult.ignored;
+      }
     });
   }
 
@@ -138,6 +144,7 @@ class KeyEventSimulatorController {
 
   void clearHeldKeys() {
     _heldFocusNodes.clear();
+    _backDownConsumed = false;
   }
 
   void dispose() {
@@ -198,6 +205,7 @@ class KeyEventSimulatorController {
     // Back handlers commonly act on every key-up, including synthesized ones.
     // Clear global press tracking without delivering a disconnect as Back.
     if (cancelled && logicalKey == LogicalKeyboardKey.gameButtonB) {
+      _backDownConsumed = false;
       observeSimulatedKeyEvent(event);
       return;
     }
@@ -210,7 +218,15 @@ class KeyEventSimulatorController {
       return;
     }
 
-    _dispatchKeyEvent(focusNode, event);
+    final result = _dispatchKeyEvent(focusNode, event);
+    if (backRouteFallback && logicalKey == LogicalKeyboardKey.gameButtonB) {
+      if (!_backDownConsumed && result == KeyEventResult.ignored && heldFocusNode != null) {
+        // Match a platform Back dispatch, including binding observers and Router.
+        // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+        unawaited(WidgetsBinding.instance.handlePopRoute());
+      }
+      _backDownConsumed = false;
+    }
   }
 
   KeyDownEvent _keyDownEvent(LogicalKeyboardKey logicalKey, PhysicalKeyboardKey physicalKey) {
@@ -232,7 +248,7 @@ class KeyEventSimulatorController {
     );
   }
 
-  void _dispatchKeyEvent(FocusNode focusNode, KeyEvent event) {
+  KeyEventResult _dispatchKeyEvent(FocusNode focusNode, KeyEvent event) {
     if (TextInputDiagnostics.enabled) {
       _log('dispatch start focus=${focusNode.debugLabel} key=(${_describeSimulatedKey(event)})');
     }
@@ -248,16 +264,15 @@ class KeyEventSimulatorController {
         }
         if (result != KeyEventResult.ignored) {
           if (TextInputDiagnostics.enabled) _log('dispatch stopped node=${node.debugLabel} result=$result');
-          break;
+          return result;
         }
       }
       node = node.parent;
     }
-    if (node == null) {
-      if (TextInputDiagnostics.enabled) {
-        _log('dispatch reached root ignored key=(${_describeSimulatedKey(event)})');
-      }
+    if (TextInputDiagnostics.enabled) {
+      _log('dispatch reached root ignored key=(${_describeSimulatedKey(event)})');
     }
+    return KeyEventResult.ignored;
   }
 
   PhysicalKeyboardKey _physicalKeyFor(LogicalKeyboardKey logicalKey) {
