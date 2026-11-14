@@ -15,6 +15,8 @@ import 'package:plezy/models/livetv_capture_buffer.dart';
 import 'package:plezy/mpv/mpv.dart';
 import 'package:plezy/providers/playback_state_provider.dart';
 import 'package:plezy/services/settings_service.dart';
+import 'package:plezy/services/gamepad_service.dart';
+import 'package:universal_gamepad/universal_gamepad.dart';
 import 'package:plezy/services/video_volume_controller.dart';
 import 'package:plezy/utils/platform_detector.dart';
 import 'package:plezy/watch_together/providers/watch_together_provider.dart';
@@ -182,6 +184,47 @@ void main() {
       expect(chrome.controlsVisible, isFalse, reason: 'an idle remote lets the OSD go after 5s');
 
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('hover cannot reveal hidden controls but a controller button can', (tester) async {
+      await pumpControls(tester);
+      chrome.hide(ignoreHolds: true);
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(300, 300));
+      await mouse.moveTo(const Offset(350, 300));
+      await tester.pump();
+      expect(chrome.controlsVisible, isFalse);
+      await press(tester, LogicalKeyboardKey.arrowDown);
+      expect(chrome.controlsVisible, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      chrome.cancelAutoHide();
+    });
+
+    testWidgets('gamepad shoulder button reveals hidden controls', (tester) async {
+      await pumpControls(tester);
+      chrome.hide(ignoreHolds: true);
+      await tester.pumpAndSettle();
+      final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));
+      service.debugHandleGamepadEvent(
+        GamepadButtonEvent(gamepadId: 1, timestamp: 0, button: GamepadButton.leftShoulder, pressed: true, value: 1),
+      );
+      await tester.pump();
+      expect(chrome.controlsVisible, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      chrome.cancelAutoHide();
+    });
+
+    testWidgets('explicit mouse click reveals hidden controls', (tester) async {
+      await pumpControls(tester, surface: _Surface.desktop);
+      chrome.hide(ignoreHolds: true);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(300, 300), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(chrome.controlsVisible, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      chrome.cancelAutoHide();
     });
 
     testWidgets('pausing keeps the OSD up until the viewer dismisses it', (tester) async {

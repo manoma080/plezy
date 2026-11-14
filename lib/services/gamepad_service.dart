@@ -208,6 +208,14 @@ class GamepadService with WindowListener {
     _tabNavigationHandlers.clear();
   }
 
+  static final Map<Object, ({VoidCallback onPress, bool Function() isActive})> _buttonObservers = {};
+
+  static void registerButtonObserver(Object owner, {required VoidCallback onPress, required bool Function() isActive}) {
+    _buttonObservers[owner] = (onPress: onPress, isActive: isActive);
+  }
+
+  static void unregisterButtonObserver(Object owner) => _buttonObservers.remove(owner);
+
   static final Map<Object, ({void Function(TraversalDirection) onSeek, bool Function() isActive})> _seekHandlers = {};
 
   static void registerRightStickSeek(
@@ -229,8 +237,7 @@ class GamepadService with WindowListener {
 
   TraversalDirection? _leftStickYLatch;
   TraversalDirection? _leftStickXLatch;
-  TraversalDirection? _rightStickXLatch;
-  TraversalDirection? _rightStickYLatch;
+  final Map<int, TraversalDirection> _rightStickXLatches = {};
 
   final Set<GamepadButton> _pressedButtons = {};
   final Set<GamepadButton> _suppressedButtons = {};
@@ -261,6 +268,7 @@ class GamepadService with WindowListener {
     return _keyEventSimulator ??= key_sim.KeyEventSimulatorController(
       deviceType: ui.KeyEventDeviceType.gamepad,
       physicalKeyByLogicalKey: _gamepadPhysicalKeyByLogicalKey,
+      backRouteFallback: true,
       log: _logGamepadDiag,
     );
   }
@@ -347,8 +355,7 @@ class GamepadService with WindowListener {
     // Reset analog stick state so re-focus doesn't inherit stale direction
     _leftStickYLatch = null;
     _leftStickXLatch = null;
-    _rightStickXLatch = null;
-    _rightStickYLatch = null;
+    _rightStickXLatches.clear();
   }
 
   void _registerNativeKeyHandler() {
@@ -460,6 +467,12 @@ class GamepadService with WindowListener {
 
     if (event.pressed && !wasPressed) {
       _pressedButtons.add(event.button);
+      // Back must keep its navigation semantics rather than opening chrome.
+      if (event.button != GamepadButton.b && !_nativeTextInputFocused) {
+        for (final observer in _buttonObservers.values.toList()) {
+          if (observer.isActive()) observer.onPress();
+        }
+      }
       if (_shouldSuppressButton(event.button)) {
         if (TextInputDiagnostics.enabled) {
           _logGamepadDiag('button suppressed by duplicate guard ${_describeGamepadButton(event)}');
@@ -584,19 +597,21 @@ class GamepadService with WindowListener {
           positive: TraversalDirection.right,
         );
       case GamepadAxis.rightStickX:
-        _rightStickXLatch = _seekStickAxis(
+        if (!event.value.isFinite || _nativeTextInputFocused) break;
+        final held = _seekStickAxis(
           event.value,
-          _rightStickXLatch,
+          _rightStickXLatches[event.gamepadId],
           TraversalDirection.left,
           TraversalDirection.right,
         );
+        if (held == null) {
+          _rightStickXLatches.remove(event.gamepadId);
+        } else {
+          _rightStickXLatches[event.gamepadId] = held;
+        }
       case GamepadAxis.rightStickY:
-        _rightStickYLatch = _seekStickAxis(
-          event.value,
-          _rightStickYLatch,
-          TraversalDirection.up,
-          TraversalDirection.down,
-        );
+        // Do not turn vertical deflections into playback seeks.
+        break;
     }
   }
 
@@ -606,6 +621,9 @@ class GamepadService with WindowListener {
     TraversalDirection negative,
     TraversalDirection positive,
   ) {
+    if (held != null && value.abs() > 0.3 && ((held == negative && value < 0) || (held == positive && value > 0))) {
+      return held;
+    }
     final direction = value < -_stickDeadzone
         ? negative
         : value > _stickDeadzone
