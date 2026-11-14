@@ -170,6 +170,8 @@ class PlexFileInfoStreamReader implements FileInfoStreamReader {
       displayTitle: stream['displayTitle'] as String?,
       selected: flexibleBool(stream['selected']),
       forced: flexibleBool(stream['forced']),
+      hearingImpaired: flexibleBool(stream['hearingImpaired']),
+      filePath: stream['file'] as String?,
       key: stream['key'] as String?,
     );
   }
@@ -225,6 +227,8 @@ class JellyfinFileInfoStreamReader implements FileInfoStreamReader {
       displayTitle: f.displayTitle,
       selected: f.isDefault,
       forced: f.isForced,
+      hearingImpaired: flexibleBool(s['IsHearingImpaired']),
+      filePath: s['Path'] as String?,
       key: f.isExternal ? f.deliveryUrl : null,
       external: f.isExternalFile,
       usesExternalDelivery: f.usesExternalDelivery,

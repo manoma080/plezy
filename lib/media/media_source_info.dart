@@ -187,6 +187,8 @@ class MediaSubtitleTrack with _TrackLabelMixin {
   final String? displayTitle;
   final bool selected;
   final bool forced;
+  final bool hearingImpaired;
+  final String? filePath;
   final String? key;
   final bool external;
   final bool usesExternalDelivery;
@@ -201,6 +203,8 @@ class MediaSubtitleTrack with _TrackLabelMixin {
     this.displayTitle,
     required this.selected,
     required this.forced,
+    this.hearingImpaired = false,
+    this.filePath,
     this.key,
     this.external = false,
     this.usesExternalDelivery = false,
@@ -252,6 +256,8 @@ class MediaSubtitleTrack with _TrackLabelMixin {
       displayTitle: displayTitle,
       selected: selected ?? this.selected,
       forced: forced,
+      hearingImpaired: hearingImpaired,
+      filePath: filePath,
       key: dropSidecarIdentity ? null : key,
       external: external,
       usesExternalDelivery: dropSidecarIdentity ? false : usesExternalDelivery,
