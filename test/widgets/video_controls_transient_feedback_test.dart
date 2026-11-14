@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -143,6 +144,30 @@ void main() {
       toast.hide();
       await tester.pumpWidget(const SizedBox.shrink());
     }
+
+    testWidgets('horizontal Android scroll seeks by the configured small step', (tester) async {
+      await pumpControls(tester);
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(position: Offset(400, 300), scrollDelta: Offset(-20, 0)),
+      );
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks, [const Duration(minutes: 10, seconds: 10)]);
+      await settleFeedback(tester);
+    });
+
+    testWidgets('horizontal scroll reverses and coalesces rapid repeats without vertical seeks', (tester) async {
+      await pumpControls(tester);
+      Future<void> scroll(Offset delta) =>
+          tester.sendEventToBinding(PointerScrollEvent(position: const Offset(400, 300), scrollDelta: delta));
+      await scroll(const Offset(20, 0));
+      await scroll(const Offset(20, 0));
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks, [const Duration(minutes: 9, seconds: 50)]);
+      await scroll(const Offset(0, 20));
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks, [const Duration(minutes: 9, seconds: 50)]);
+      await settleFeedback(tester);
+    });
 
     testWidgets('a right-arrow tap seeks without raising the chrome', (tester) async {
       await pumpControls(tester);
