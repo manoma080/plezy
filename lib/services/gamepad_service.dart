@@ -208,6 +208,14 @@ class GamepadService with WindowListener {
     _tabNavigationHandlers.clear();
   }
 
+  static final Map<Object, ({VoidCallback onPress, bool Function() isActive})> _buttonObservers = {};
+
+  static void registerButtonObserver(Object owner, {required VoidCallback onPress, required bool Function() isActive}) {
+    _buttonObservers[owner] = (onPress: onPress, isActive: isActive);
+  }
+
+  static void unregisterButtonObserver(Object owner) => _buttonObservers.remove(owner);
+
   static final Map<Object, ({void Function(TraversalDirection) onSeek, bool Function() isActive})> _seekHandlers = {};
 
   static void registerRightStickSeek(
@@ -225,12 +233,11 @@ class GamepadService with WindowListener {
   static const Duration _repeatInitialDelay = Duration(milliseconds: 400);
   static const Duration _repeatInterval = Duration(milliseconds: 80);
 
-  static const _androidStickChannel = MethodChannel('com.plezy/right_stick');
   key_sim.KeyEventSimulatorController? _keyEventSimulator;
 
   TraversalDirection? _leftStickYLatch;
   TraversalDirection? _leftStickXLatch;
-  TraversalDirection? _rightStickXLatch;
+  final Map<int, TraversalDirection> _rightStickXLatches = {};
 
   final Set<GamepadButton> _pressedButtons = {};
   final Set<GamepadButton> _suppressedButtons = {};
@@ -280,13 +287,6 @@ class GamepadService with WindowListener {
 
   void start() async {
     appLogger.i('GamepadService: Starting on ${Platform.operatingSystem}');
-    if (Platform.isAndroid) {
-      _androidStickChannel.setMethodCallHandler((call) async {
-        if (call.method == 'horizontal' && call.arguments is num) {
-          _handleNativeRightStick((call.arguments as num).toDouble());
-        }
-      });
-    }
 
     try {
       final gamepads = await Gamepad.instance.listGamepads();
@@ -344,6 +344,8 @@ class GamepadService with WindowListener {
         LogicalKeyboardKey.enter,
       if (_pressedButtons.contains(GamepadButton.x) && !_suppressedButtons.contains(GamepadButton.x))
         LogicalKeyboardKey.gameButtonX,
+      if (_pressedButtons.contains(GamepadButton.b) && !_suppressedButtons.contains(GamepadButton.b))
+        LogicalKeyboardKey.gameButtonB,
     ], cancelled: true);
     _pressedButtons.clear();
     _suppressedButtons.clear();
@@ -352,7 +354,7 @@ class GamepadService with WindowListener {
     // Reset analog stick state so re-focus doesn't inherit stale direction
     _leftStickYLatch = null;
     _leftStickXLatch = null;
-    _rightStickXLatch = null;
+    _rightStickXLatches.clear();
   }
 
   void _registerNativeKeyHandler() {
@@ -464,6 +466,12 @@ class GamepadService with WindowListener {
 
     if (event.pressed && !wasPressed) {
       _pressedButtons.add(event.button);
+      // Back must keep its navigation semantics rather than opening chrome.
+      if (event.button != GamepadButton.b && !_nativeTextInputFocused) {
+        for (final observer in _buttonObservers.values.toList()) {
+          if (observer.isActive()) observer.onPress();
+        }
+      }
       if (_shouldSuppressButton(event.button)) {
         if (TextInputDiagnostics.enabled) {
           _logGamepadDiag('button suppressed by duplicate guard ${_describeGamepadButton(event)}');
@@ -496,9 +504,7 @@ class GamepadService with WindowListener {
           }
           _simulator.simulateKeyDown(LogicalKeyboardKey.gameButtonX);
         case GamepadButton.b:
-          // Back is dispatched on release through the same route dispatcher as
-          // Android's system back, not through whichever widget has focus.
-          break;
+          _simulator.simulateKeyDown(LogicalKeyboardKey.gameButtonB);
         // Immediate actions on press
         case GamepadButton.leftShoulder:
           _dispatchTabNavigation(previous: true);
@@ -533,9 +539,7 @@ class GamepadService with WindowListener {
           }
           _simulator.simulateKeyUp(LogicalKeyboardKey.enter);
         case GamepadButton.b:
-          // No public equivalent dispatches to all back observers.
-          // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-          unawaited(WidgetsBinding.instance.handlePopRoute());
+          _simulator.simulateKeyUp(LogicalKeyboardKey.gameButtonB);
         case GamepadButton.x:
           if (TextInputDiagnostics.enabled) {
             _logGamepadDiag('button simulates key up context/menu ${_describeGamepadButton(event)}');
@@ -554,14 +558,6 @@ class GamepadService with WindowListener {
       _logGamepadDiag('duplicate guard button=$button syntheticKey=$syntheticKey suppressed=$suppressed');
     }
     return suppressed;
-  }
-
-  @visibleForTesting
-  void debugHandleNativeRightStick(double value) => _handleNativeRightStick(value);
-
-  void _handleNativeRightStick(double value) {
-    if (!_windowFocused || _nativeTextInputFocused || !value.isFinite) return;
-    _rightStickXLatch = _seekStickAxis(value, _rightStickXLatch, TraversalDirection.left, TraversalDirection.right);
   }
 
   void _handleAxis(GamepadAxisEvent event) {
@@ -600,15 +596,18 @@ class GamepadService with WindowListener {
           positive: TraversalDirection.right,
         );
       case GamepadAxis.rightStickX:
-        // Android's activity observes joystick motion before the Flutter view;
-        // the plugin also emits it for recognized devices, so use only one path.
-        if (Platform.isAndroid) break;
-        _rightStickXLatch = _seekStickAxis(
+        if (!event.value.isFinite || _nativeTextInputFocused) break;
+        final held = _seekStickAxis(
           event.value,
-          _rightStickXLatch,
+          _rightStickXLatches[event.gamepadId],
           TraversalDirection.left,
           TraversalDirection.right,
         );
+        if (held == null) {
+          _rightStickXLatches.remove(event.gamepadId);
+        } else {
+          _rightStickXLatches[event.gamepadId] = held;
+        }
       case GamepadAxis.rightStickY:
         // Do not turn vertical deflections into playback seeks.
         break;
@@ -621,6 +620,9 @@ class GamepadService with WindowListener {
     TraversalDirection negative,
     TraversalDirection positive,
   ) {
+    if (held != null && value.abs() > 0.3 && ((held == negative && value < 0) || (held == positive && value > 0))) {
+      return held;
+    }
     final direction = value < -_stickDeadzone
         ? negative
         : value > _stickDeadzone

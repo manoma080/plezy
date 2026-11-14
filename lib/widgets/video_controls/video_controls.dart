@@ -19,6 +19,7 @@ import 'package:rate_limiter/rate_limiter.dart';
 import 'package:flutter/services.dart'
     show LogicalKeyboardKey, PhysicalKeyboardKey, KeyEvent, KeyDownEvent, KeyUpEvent, KeyRepeatEvent, HardwareKeyboard;
 import '../../services/fullscreen_state_manager.dart';
+import '../../services/gamepad_service.dart';
 import '../../services/macos_window_service.dart';
 import '../../services/pip_service.dart';
 import '../../services/playback_initialization_types.dart';
@@ -916,6 +917,17 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
   @override
   void initState() {
     super.initState();
+    GamepadService.registerButtonObserver(
+      this,
+      isActive: () =>
+          mounted &&
+          (ModalRoute.of(context)?.isCurrent ?? false) &&
+          !(OverlaySheetController.maybeOf(context)?.isOpen ?? false) &&
+          !widget.playbackPromptOpen,
+      onPress: () {
+        if (!_showControls) _showControlsWithFocus(requestFocus: false);
+      },
+    );
     _lastControlsVisible = widget.chromeController.controlsVisible;
     _controlsMounted = _lastControlsVisible;
     _controlsOpaque = _lastControlsVisible;
@@ -1094,6 +1106,7 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
 
   @override
   void dispose() {
+    GamepadService.unregisterButtonObserver(this);
     ++_subtitleVisibilityWriteGeneration;
     _feedbackTimer?.cancel();
     _feedbackHideTimer?.cancel();
