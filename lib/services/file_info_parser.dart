@@ -165,7 +165,7 @@ class PlexFileInfoStreamReader implements FileInfoStreamReader {
       index: flexibleInt(stream['index']),
       codec: stream['codec'] as String?,
       language: stream['language'] as String?,
-      languageCode: stream['languageCode'] as String?,
+      languageCode: _text(stream['languageCode']) ?? _text(stream['languageTag']),
       title: stream['title'] as String?,
       displayTitle: stream['displayTitle'] as String?,
       selected: flexibleBool(stream['selected']),

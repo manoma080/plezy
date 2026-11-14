@@ -48,6 +48,49 @@ void main() {
     expect(classifySubtitle(track(5, filePath: '/shows/Film.en.hi.srt')), contains(SubtitleKind.cc));
     expect(classifySubtitle(track(6, filePath: '/shows/Signs.en.srt')), {SubtitleKind.standard});
   });
+  test('filename markers begin after the rightmost language suffix', () {
+    expect(classifySubtitle(track(1, filePath: 'En.Signs.en.srt')), {SubtitleKind.standard});
+    expect(classifySubtitle(track(2, filePath: 'En.Signs.en-forced.srt')), {SubtitleKind.forced});
+    for (final marker in ['f', 'ff', 'forced']) {
+      expect(classifySubtitle(track(3, filePath: 'Movie.en-$marker.srt')), contains(SubtitleKind.forced));
+    }
+    for (final marker in ['signs', 'ss']) {
+      expect(classifySubtitle(track(4, filePath: 'Movie.en-$marker.srt')), contains(SubtitleKind.signs));
+    }
+    expect(classifySubtitle(track(5, filePath: 'Movie.en-US.srt')), {SubtitleKind.standard});
+    expect(classifySubtitle(track(6, title: 'CC Signs')), {SubtitleKind.cc, SubtitleKind.signs});
+    expect(classifySubtitle(track(7, title: 'unforced assignment')), {SubtitleKind.standard});
+  });
+  test('unknown languages never match and supported aliases do', () {
+    expect(
+      selectPreferredSubtitle(
+        [track(1, languageCode: 'xx')],
+        languageCode: 'xx',
+        kind: SubtitleKind.standard,
+      ),
+      isNull,
+    );
+    expect(
+      selectPreferredSubtitle(
+        [track(2, languageCode: 'fre')],
+        languageCode: 'fr-CA',
+        kind: SubtitleKind.standard,
+      )?.id,
+      2,
+    );
+  });
+  test('single-kind matches outrank earlier conflicting multi-kind tracks', () {
+    final tracks = [track(1, title: 'CC Signs'), track(2, title: 'CC')];
+    expect(selectPreferredSubtitle(tracks, languageCode: 'en', kind: SubtitleKind.cc)?.id, 2);
+    expect(selectPreferredSubtitle(tracks.take(1), languageCode: 'en', kind: SubtitleKind.cc)?.id, 1);
+  });
+  test('Plex language tag fallback enables subtitle matching', () {
+    final reader = const PlexFileInfoStreamReader();
+    final parsed = reader.toSubtitleTrack({'id': 1, 'languageTag': 'en-US'}, 1);
+    expect(parsed.languageCode, 'en-US');
+    expect(selectPreferredSubtitle([parsed], languageCode: 'eng', kind: SubtitleKind.standard), parsed);
+    expect(reader.toSubtitleTrack({'id': 2, 'languageCode': 'fra', 'languageTag': 'en'}, 1).languageCode, 'fra');
+  });
   test('server metadata survives parsing and track rebuilds', () {
     final plex = const PlexFileInfoStreamReader().toSubtitleTrack({
       'id': 42,

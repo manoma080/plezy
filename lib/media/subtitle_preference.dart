@@ -44,7 +44,7 @@ Set<SubtitleKind> classifySubtitle(MediaSubtitleTrack track) {
     final basename = path.split(RegExp(r'[/\\]')).last;
     final parts = basename.split('.');
     final language = _language(track.languageCode);
-    final index = parts.indexWhere((part) => language != null && _language(part.split('-').first) == language);
+    final index = parts.lastIndexWhere((part) => language != null && _language(part.split('-').first) == language);
     if (index >= 0 && index < parts.length - 1) {
       final suffix = parts[index].split('-').skip(1).followedBy(parts.skip(index + 1)).join('.');
       read(suffix, filename: true);
@@ -58,11 +58,11 @@ String? _language(String? code) {
   if (code == null) return null;
   final normalized = code.trim().toLowerCase().split(RegExp('[-_]')).first;
   if (!RegExp(r'^[a-z]{2,3}$').hasMatch(normalized) || normalized == 'und') return null;
-  return LanguageCodes.getIso6391Code(normalized) ?? normalized;
+  return LanguageCodes.getIso6391Code(normalized);
 }
 
-/// Returns the first matching track, or null so the caller can leave the
-/// existing selection unchanged. Unknown languages never match.
+/// Prefers an exact kind over a multi-kind match, preserving server order
+/// within each class. Unknown languages never match.
 MediaSubtitleTrack? selectPreferredSubtitle(
   Iterable<MediaSubtitleTrack> tracks, {
   required String languageCode,
@@ -70,8 +70,13 @@ MediaSubtitleTrack? selectPreferredSubtitle(
 }) {
   final language = _language(languageCode);
   if (language == null) return null;
+  MediaSubtitleTrack? fallback;
   for (final track in tracks) {
-    if (_language(track.languageCode) == language && classifySubtitle(track).contains(kind)) return track;
+    if (_language(track.languageCode) != language) continue;
+    final kinds = classifySubtitle(track);
+    if (!kinds.contains(kind)) continue;
+    if (kinds.length == 1) return track;
+    fallback ??= track;
   }
-  return null;
+  return fallback;
 }
