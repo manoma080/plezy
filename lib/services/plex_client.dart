@@ -1469,6 +1469,23 @@ class PlexClient
     );
   }
 
+  /// Persist a subtitle choice for one part, without affecting other parts.
+  Future<bool> selectSubtitleForPart(int partId, int streamId, {required String ratingKey}) async {
+    final bool saved;
+    try {
+      saved = await _wrapBoolApiCall(
+        () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
+        'Failed to select subtitle',
+      );
+    } catch (_) {
+      return false;
+    }
+    if (saved) {
+      await cache.invalidateFreshness(ServerId(cacheServerId), '/library/metadata/$ratingKey');
+    }
+    return saved;
+  }
+
   /// Search for subtitles from external providers (e.g. OpenSubtitles) via the Plex server.
   /// [language] is an ISO 639-1 two-letter code (e.g. "en", "es").
   Future<List<PlexSubtitleSearchResult>> searchSubtitles(
