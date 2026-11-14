@@ -90,7 +90,8 @@ void main() {
 
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     addTearDown(mouse.removePointer);
-    await mouse.addPointer(location: tester.getCenter(find.text('Cancel')));
+    await mouse.addPointer(location: tester.getCenter(find.text('Cancel')) + const Offset(-1, 0));
+    await mouse.moveTo(tester.getCenter(find.text('Cancel')));
     await tester.pump();
 
     expect(chromeController.controlsVisible, isTrue);
@@ -98,6 +99,41 @@ void main() {
     expect(_promptPosition(tester).bottom, 100);
     expect(chromeController.hide(), isFalse);
     expect(_promptPosition(tester).bottom, 100);
+    await tester.pumpWidget(const SizedBox.shrink());
+    chromeController.cancelAutoHide();
+  });
+
+  testWidgets('a prompt appearing beneath a stationary mouse does not reveal hidden chrome', (tester) async {
+    final chrome = PlayerChromeController(initiallyVisible: false)..setPlaying(true);
+    final cancel = FocusNode();
+    final confirm = FocusNode();
+    addTearDown(chrome.dispose);
+    addTearDown(cancel.dispose);
+    addTearDown(confirm.dispose);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: const Offset(700, 550));
+    await tester.pumpWidget(
+      _wrapPrompt(
+        VideoPlayerPlayNextOverlay(
+          visible: true,
+          nextEpisode: _episode(),
+          autoPlayCountdown: _countdown(),
+          cancelFocusNode: cancel,
+          confirmFocusNode: confirm,
+          chromeController: chrome,
+          onCancel: () {},
+          onPlayNext: () {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(chrome.controlsVisible, isFalse);
+    expect(chrome.isHeld(PlayerChromeHold.promptInteraction), isFalse);
+    confirm.requestFocus();
+    await tester.pump();
+    expect(chrome.controlsVisible, isFalse);
+    expect(chrome.isHeld(PlayerChromeHold.promptInteraction), isFalse);
   });
 
   testWidgets('focused play next prompt holds chrome visible', (tester) async {
@@ -129,6 +165,8 @@ void main() {
 
     expect(chromeController.isHeld(PlayerChromeHold.promptInteraction), isTrue);
     expect(chromeController.hide(), isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+    chromeController.cancelAutoHide();
   });
 
   testWidgets('removing a held prompt releases hold without notifying during dispose', (tester) async {
@@ -163,6 +201,8 @@ void main() {
 
     expect(chromeController.isHeld(PlayerChromeHold.promptInteraction), isFalse);
     expect(notifications, 0);
+    await tester.pump(const Duration(seconds: 3));
+    expect(chromeController.controlsVisible, isFalse);
   });
 
   testWidgets('the buffering spinner announces loading until the first frame renders', (tester) async {

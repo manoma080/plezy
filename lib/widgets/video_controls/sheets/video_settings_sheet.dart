@@ -24,6 +24,7 @@ import '../../../services/file_picker_service.dart';
 import '../../../services/scoped_player_prefs.dart';
 import '../../../services/settings_service.dart';
 import '../../../services/video_equalizer.dart';
+import '../../../services/video_filter_presets.dart';
 import '../../../services/sleep_timer_service.dart';
 import '../../../services/video_filter_manager.dart';
 import '../../../focus/focusable_wrapper.dart';
@@ -822,6 +823,71 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
     write: SettingsService.instance.writeInt,
   );
 
+  VideoFilterPresets get _filterPresets => VideoFilterPresets(
+    read: () => SettingsService.instance.readString('video_filter_presets'),
+    write: (value) => SettingsService.instance.writeString('video_filter_presets', value),
+  );
+
+  Future<void> _saveFilterPreset() async {
+    final input = await showTextInputDialog(
+      context,
+      title: 'Save preset',
+      labelText: 'Preset name',
+      confirmText: 'Save',
+    );
+    if (!mounted || input == null || input.trim().isEmpty) return;
+    final name = input.trim();
+    final presets = _filterPresets;
+    if (presets.names.contains(name)) {
+      final overwrite = await showConfirmDialog(
+        context,
+        title: 'Overwrite preset?',
+        message: 'Replace "$name"?',
+        confirmText: 'Overwrite',
+      );
+      if (!mounted || !overwrite) return;
+    }
+    try {
+      await presets.save(name, await _equalizer.snapshot());
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save preset: $error')));
+    }
+  }
+
+  Future<void> _applyFilterPreset(String name) async {
+    final values = _filterPresets.values(name);
+    if (values == null) return;
+    try {
+      await _equalizer.applyValues(values);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not apply preset: $error')));
+      }
+    } finally {
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _deleteFilterPreset(String name) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Delete preset?',
+      message: 'Delete "$name"?',
+      confirmText: 'Delete',
+      isDestructive: true,
+    );
+    if (!mounted || !confirmed) return;
+    try {
+      await _filterPresets.delete(name);
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete preset: $error')));
+      }
+    }
+  }
+
   Widget _buildEqualizerView() {
     if (widget.player.playerType != 'mpv') {
       return const Padding(
@@ -836,6 +902,25 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
       shrinkWrap: true,
       children: [
         for (final control in VideoEqualizerControl.values) _EqualizerSlider(control: control, equalizer: equalizer),
+        if (_filterPresets.names.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final name in _filterPresets.names)
+                  Semantics(
+                    label: '$name, long press to delete',
+                    child: GestureDetector(
+                      onLongPress: () => _deleteFilterPreset(name),
+                      child: ActionChip(label: Text(name), onPressed: () => _applyFilterPreset(name)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        TextButton(onPressed: _saveFilterPreset, child: const Text('Save')),
         TextButton(
           onPressed: () async {
             try {
@@ -1810,7 +1895,9 @@ class _EqualizerSliderState extends State<_EqualizerSlider> {
             } catch (error) {
               if (!mounted) return;
               setState(() => value = widget.equalizer.value(control).toDouble());
-              ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Could not apply $label: $error')));
+              ScaffoldMessenger.of(
+                this.context,
+              ).showSnackBar(SnackBar(content: Text('Could not apply $label: $error')));
             }
           },
         ),

@@ -44,7 +44,7 @@ class DpadSelectLongPressController {
     if (event is KeyUpEvent) {
       final timerWasActive = _timer?.isActive ?? false;
       _timer?.cancel();
-      if (timerWasActive && _isKeyDown) onShortPress();
+      if (timerWasActive && _isKeyDown && !event.synthesized) onShortPress();
       _isKeyDown = false;
       return KeyEventResult.handled;
     }

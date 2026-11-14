@@ -28,6 +28,7 @@ import '../media/live_tv_support.dart';
 import '../models/livetv_capture_buffer.dart';
 import '../models/livetv_channel.dart';
 import '../services/live_seek_accumulator.dart';
+import '../services/gamepad_service.dart';
 import '../services/plex_client.dart';
 import '../services/jellyfin_client.dart';
 import '../media/account_preferences.dart';
@@ -1348,6 +1349,23 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   @override
   void initState() {
     super.initState();
+    GamepadService.registerRightStickSeek(
+      this,
+      isActive: () =>
+          mounted &&
+          !_shuttingDown &&
+          (ModalRoute.of(context)?.isCurrent ?? true) &&
+          !(OverlaySheetController.maybeOf(_sheetContext)?.isOpen ?? false),
+      onSeek: (direction) {
+        if (!_canControlPlayback()) return;
+        final large = direction == TraversalDirection.up || direction == TraversalDirection.down;
+        final forward = direction == TraversalDirection.right || direction == TraversalDirection.up;
+        final seconds = SettingsService.instance.read(
+          large ? SettingsService.seekTimeLarge : SettingsService.seekTimeSmall,
+        );
+        _seekRelative(Duration(seconds: forward ? seconds : -seconds));
+      },
+    );
     PlaybackCoordinator.instance.registerVideoSession(
       shutdown: _shutdownVideo,
       stopAndExit: _stopVideoAndExit,
@@ -2427,6 +2445,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   @override
   void dispose() {
+    GamepadService.unregisterRightStickSeek(this);
     PlaybackCoordinator.instance.unregisterVideoSession(
       _shutdownVideo,
       retirement: () async {

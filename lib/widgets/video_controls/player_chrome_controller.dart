@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Offset;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
@@ -280,7 +281,9 @@ class PlayerChromeInteractionRegion extends StatelessWidget {
       builder: (context, _) {
         return MouseRegion(
           cursor: controller.controlsVisible ? SystemMouseCursors.basic : SystemMouseCursors.none,
-          onHover: (_) => controller.recordPointerActivity(),
+          onHover: (event) {
+            if (!event.synthesized && event.delta != Offset.zero) controller.recordPointerActivity();
+          },
           onEnter: hideOnExit ? (_) => controller.recordPointerEnter() : null,
           onExit: (_) {
             if (!hideOnExit) return;
