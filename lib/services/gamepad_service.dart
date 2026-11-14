@@ -471,12 +471,9 @@ class GamepadService with WindowListener {
             _logGamepadDiag('button simulates key down context/menu ${_describeGamepadButton(event)}');
           }
           _simulator.simulateKeyDown(LogicalKeyboardKey.gameButtonX);
-        // Immediate actions on press
         case GamepadButton.b:
-          if (TextInputDiagnostics.enabled) {
-            _logGamepadDiag('button simulates key press back ${_describeGamepadButton(event)}');
-          }
-          _simulator.simulateKeyPress(LogicalKeyboardKey.gameButtonB);
+          _simulator.simulateKeyDown(LogicalKeyboardKey.gameButtonB);
+        // Immediate actions on press
         case GamepadButton.leftShoulder:
           _dispatchTabNavigation(previous: true);
         case GamepadButton.rightShoulder:
@@ -509,6 +506,8 @@ class GamepadService with WindowListener {
             _logGamepadDiag('button simulates key up enter ${_describeGamepadButton(event)}');
           }
           _simulator.simulateKeyUp(LogicalKeyboardKey.enter);
+        case GamepadButton.b:
+          _simulator.simulateKeyUp(LogicalKeyboardKey.gameButtonB);
         case GamepadButton.x:
           if (TextInputDiagnostics.enabled) {
             _logGamepadDiag('button simulates key up context/menu ${_describeGamepadButton(event)}');
