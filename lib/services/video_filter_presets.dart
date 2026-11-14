@@ -32,15 +32,26 @@ class VideoFilterPresets {
   List<String> get names => _load().keys.toList();
   Map<String, int>? values(String name) => _load()[name];
 
-  Future<void> save(String name, Map<String, int> values) async {
-    if (name.trim().isEmpty) throw const FormatException('A preset name is required');
-    final presets = _load();
-    presets[name] = Map.of(values);
-    await write(jsonEncode(presets));
+  static Future<void> _pending = Future.value();
+
+  Future<void> _enqueue(Future<void> Function() operation) {
+    final result = _pending.then((_) => operation());
+    _pending = result.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+    return result;
   }
 
-  Future<void> delete(String name) async {
+  Future<void> save(String name, Map<String, int> values) async {
+    if (name.trim().isEmpty) throw const FormatException('A preset name is required');
+    final snapshot = Map<String, int>.of(values);
+    return _enqueue(() async {
+      final presets = _load();
+      presets[name] = snapshot;
+      await write(jsonEncode(presets));
+    });
+  }
+
+  Future<void> delete(String name) => _enqueue(() async {
     final presets = _load()..remove(name);
     await write(jsonEncode(presets));
-  }
+  });
 }

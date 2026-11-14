@@ -1,8 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plezy/services/video_equalizer.dart';
 import 'package:plezy/services/video_filter_presets.dart';
 
 void main() {
+  test('overlapping saves from different instances preserve both presets', () async {
+    var data = '{}';
+    final firstWrite = Completer<void>();
+    var writes = 0;
+    VideoFilterPresets create() => VideoFilterPresets(
+      read: () => data,
+      write: (value) async {
+        if (writes++ == 0) await firstWrite.future;
+        data = value;
+      },
+    );
+    final values = {for (final control in VideoEqualizerControl.values) control.name: 0};
+    final first = create().save('Day', values);
+    final second = create().save('Night', values);
+    firstWrite.complete();
+    await Future.wait([first, second]);
+    expect(create().names, ['Day', 'Night']);
+  });
   test('overwrite preserves other names and malformed data is ignored', () async {
     String data = 'not json';
     final presets = VideoFilterPresets(read: () => data, write: (v) async => data = v);
