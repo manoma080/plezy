@@ -60,6 +60,9 @@ class PlaybackInitializationOptions {
   final SubtitlePreferenceOverride subtitleOverride;
   final String? subtitleOverrideLanguage;
 
+  /// Authentication session under which the subtitle preference was read.
+  final Object? subtitlePreferenceSession;
+
   /// Plex transcode `X-Plex-Session-Identifier`. Required for Plex transcode.
   final String? sessionIdentifier;
 
@@ -92,6 +95,7 @@ class PlaybackInitializationOptions {
     this.preferredSubtitleTrack,
     this.subtitleOverride = SubtitlePreferenceOverride.off,
     this.subtitleOverrideLanguage,
+    this.subtitlePreferenceSession,
     this.sessionIdentifier,
     this.transcodeSessionId,
     this.startPosition,

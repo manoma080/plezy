@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/native.dart';
@@ -12,11 +13,128 @@ import 'package:plezy/services/subtitle_preference.dart';
 import 'package:plezy/services/playback_initialization_types.dart';
 import 'package:plezy/services/plex_api_cache.dart';
 import 'package:plezy/services/settings_service.dart';
+import 'package:plezy/utils/active_client_scope.dart';
 
 import '../test_helpers/backend_client_fixtures.dart';
 import '../test_helpers/media_items.dart';
 
 void main() {
+  test('rejects a subtitle preference captured for another session', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    final requests = <http.Request>[];
+    final client = testPlexClient(
+      serverId: ServerId('server-id'),
+      handler: (request) async {
+        requests.add(request);
+        return http.Response('', 500);
+      },
+    );
+    addTearDown(() async {
+      client.close();
+      await db.close();
+    });
+    await expectLater(
+      client.getPlaybackInitialization(
+        PlaybackInitializationOptions(
+          metadata: testMediaItem(id: '42', backend: MediaBackend.plex, kind: MediaKind.movie, serverId: 'server-id'),
+          selectedMediaIndex: 0,
+          subtitleOverride: SubtitlePreferenceOverride.cc,
+          subtitleOverrideLanguage: 'en',
+          subtitlePreferenceSession: Object(),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(requests, isEmpty);
+  });
+
+  test('profile switch during playback metadata prevents stale subtitle write', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final writes = <http.Request>[];
+    final client = testPlexClient(
+      serverId: ServerId('server-id'),
+      handler: (request) async {
+        if (request.url.path == '/') {
+          return http.Response(
+            jsonEncode({
+              'MediaContainer': {'machineIdentifier': 'server-id'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/media/providers') {
+          return http.Response(jsonEncode({'MediaContainer': {}}), 200);
+        }
+        if (request.method == 'PUT') {
+          writes.add(request);
+          return http.Response('', 200);
+        }
+        if (!started.isCompleted) started.complete();
+        await release.future;
+        return http.Response(
+          jsonEncode({
+            'MediaContainer': {
+              'Metadata': [
+                {
+                  'ratingKey': '42',
+                  'type': 'movie',
+                  'title': 'Movie',
+                  'Media': [
+                    {
+                      'id': 7,
+                      'container': 'mkv',
+                      'Part': [
+                        {
+                          'id': 99,
+                          'key': '/library/parts/99/file.mkv',
+                          'Stream': [
+                            {'streamType': 1, 'id': 300, 'codec': 'h264'},
+                            {'streamType': 3, 'id': 401, 'codec': 'srt', 'languageCode': 'eng', 'selected': true},
+                            {'streamType': 3, 'id': 402, 'codec': 'srt', 'languageCode': 'eng', 'title': 'SDH'},
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      },
+    );
+    addTearDown(() async {
+      client.close();
+      await db.close();
+    });
+    final future = client.getPlaybackInitialization(
+      PlaybackInitializationOptions(
+        metadata: testMediaItem(id: '42', backend: MediaBackend.plex, kind: MediaKind.movie, serverId: 'server-id'),
+        selectedMediaIndex: 0,
+        subtitleOverride: SubtitlePreferenceOverride.cc,
+        subtitleOverrideLanguage: 'en',
+      ),
+    );
+    await started.future;
+    await client.applyProfileUpdate(
+      newToken: 'other',
+      newProfileScopeId: buildPlexProfileScopeId(serverId: ServerId('server-id'), profileId: 'other'),
+    );
+    await client.applyProfileUpdate(
+      newToken: 'token',
+      newProfileScopeId: buildPlexProfileScopeId(serverId: ServerId('server-id'), profileId: 'test-profile'),
+    );
+    release.complete();
+    await expectLater(future, throwsA(isA<Exception>()));
+    expect(writes, isEmpty);
+  });
   for (final kind in [MediaKind.movie, MediaKind.clip, MediaKind.photo, MediaKind.track]) {
     test('automatic subtitle override respects playback scope for ${kind.name}', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());

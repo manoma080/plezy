@@ -1784,10 +1784,18 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
               generalDefault: settingsService.read(SettingsService.defaultQualityPreset),
             );
         final accountPreferences = context.read<AccountPreferencesController>();
+        final accountScopeCurrent = accountPreferences.captureActiveScope();
+        final subtitlePreferenceSession = genericClient is PlexClient ? genericClient.authenticationSessionId : null;
         if (settingsService.read(SettingsService.subtitlePreferenceOverride) != SubtitlePreferenceOverride.off &&
             _preferredSubtitleTrack == null) {
           await accountPreferences.ensureActiveLoaded();
-          if (!mounted) return;
+          if (!mounted ||
+              !_isPlayerInitializationCurrent(generation) ||
+              !accountScopeCurrent() ||
+              (genericClient is PlexClient &&
+                  !identical(subtitlePreferenceSession, genericClient.authenticationSessionId))) {
+            return;
+          }
         }
         final playbackResolver = PlaybackSourceResolver(
           serverManager: context.read<MultiServerProvider>().serverManager,
@@ -1805,6 +1813,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
             preferredSubtitleTrack: _preferredSubtitleTrack,
             subtitleOverride: settingsService.read(SettingsService.subtitlePreferenceOverride),
             subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
+            subtitlePreferenceSession: subtitlePreferenceSession,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             // The same resume the open will land on (see

@@ -1682,14 +1682,20 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
 
   bool _openingSubtitlePreferenceStarted = false;
 
-  Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item) async {
+  Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item, Object subtitleSession) async {
+    if (!identical(subtitleSession, client.authenticationSessionId)) return;
     if (_openingSubtitlePreferenceStarted) return;
     _openingSubtitlePreferenceStarted = true;
     final subtitleGeneration = client.beginSubtitleIntent(item.id, supersede: false);
     final confirmSelectedSubtitle = client.hasPendingSubtitleWrites;
     final route = ModalRoute.of(context);
     final account = context.read<AccountPreferencesController?>();
-    bool current() => _canUseDetail && route?.isCurrent != false;
+    final accountScopeCurrent = account?.captureActiveScope();
+    bool current() =>
+        _canUseDetail &&
+        route?.isCurrent != false &&
+        identical(subtitleSession, client.authenticationSessionId) &&
+        (accountScopeCurrent?.call() ?? true);
     try {
       final settings = await SettingsService.getInstance();
       final preference = settings.read(SettingsService.subtitlePreferenceOverride);
@@ -1722,7 +1728,7 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
             ? Future.value(false)
             : client.selectSubtitleForPart(part, stream, ratingKey: item.id, generation: subtitleGeneration),
       );
-      if (!identical(source, updated) && _canUseDetail) {
+      if (!identical(source, updated) && current()) {
         _invalidatePlaybackProbes(refreshItems: true);
       }
     } catch (e, stackTrace) {
@@ -1785,6 +1791,7 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
         return;
       }
 
+      final detailSession = client is PlexClient ? client.authenticationSessionId : null;
       // Normalises a freshly fetched item against the row we navigated from
       // (which owns serverId/library) and paints it. Called once from
       // [onItemReady] on backends that learn the item before on-deck, and once
@@ -1831,15 +1838,17 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
       final result = await client.fetchItemWithOnDeck(
         _metadata.id,
         onItemReady: (item) {
-          if (_canUseDetail) publish(item);
+          if (_canUseDetail && (client is! PlexClient || identical(detailSession, client.authenticationSessionId))) {
+            publish(item);
+          }
         },
       );
       final metadata = result.item;
 
-      if (!_canUseDetail) return;
+      if (!_canUseDetail || (client is PlexClient && !identical(detailSession, client.authenticationSessionId))) return;
       final base = publish(metadata ?? _metadata, onDeckEpisode: result.onDeckEpisode, onDeckSettled: true);
       if (client is PlexClient && (base.isMovie || base.isEpisode)) {
-        unawaited(_applyOpenedItemSubtitlePreference(client, base));
+        unawaited(_applyOpenedItemSubtitlePreference(client, base, detailSession!));
       }
 
       if (base.isShow) {

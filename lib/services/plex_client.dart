@@ -1505,7 +1505,7 @@ class PlexClient
       if (previous != null) await previous;
       if (!identical(session, _authenticationSessionId) || (current != null && !current())) return false;
       final saved = await write();
-      return saved && (current == null || current());
+      return saved && identical(session, _authenticationSessionId) && (current == null || current());
     } finally {
       done.complete();
       if (identical(_subtitleWrites[key], done.future)) {
@@ -2122,6 +2122,7 @@ class PlexClient
     Duration? position,
     bool forceRefresh = false,
   }) async {
+    final requestContext = _captureCacheFirstRequestContext();
     // Fresh-cache-first: the detail screen writes a strict superset of this
     // query shape (includeChapters+includeMarkers+includeOnDeck+checkFiles+
     // includeStreams, [_getMetadataWithImages] with OnDeck) under the same key
@@ -2132,7 +2133,7 @@ class PlexClient
     // to the network-first fetch below unchanged.
     if (!forceRefresh) {
       final freshRow = await cache.getIfFresh(
-        ServerId(cacheServerId),
+        requestContext.cacheScope,
         '/library/metadata/$ratingKey',
         maxAge: playbackMetadataCacheFreshness,
       );
@@ -2154,12 +2155,14 @@ class PlexClient
       }
     }
     final data = await fetchWithCacheFallback<Map<String, dynamic>>(
+      cacheScope: requestContext.cacheScope,
       cacheKey: '/library/metadata/$ratingKey',
       // checkFiles=1 populates Part.accessible/exists so we can skip
       // deleted-but-still-indexed versions before play.
       networkCall: () => _http.get(
         '/library/metadata/$ratingKey',
         queryParameters: {'includeMarkers': 1, 'includeChapters': 1, 'checkFiles': 1, 'includeStreams': 1},
+        headers: requestContext.headers,
       ),
       parseCache: (cached) => cached as Map<String, dynamic>?,
       parseResponse: (response) => response.data as Map<String, dynamic>?,
@@ -3867,6 +3870,16 @@ class PlexClient
   /// independently selectable through the returned sidecar catalog.
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
+    final subtitleSession = authenticationSessionId;
+    if (options.subtitlePreferenceSession != null && !identical(options.subtitlePreferenceSession, subtitleSession)) {
+      throw StateError('Plex profile changed after subtitle preference capture');
+    }
+    void ensureCurrentProfile() {
+      if (!identical(subtitleSession, authenticationSessionId)) {
+        throw StateError('Plex profile changed during playback initialization');
+      }
+    }
+
     final eligibleForSubtitleOverride =
         options.metadata.kind == MediaKind.movie || options.metadata.kind == MediaKind.episode;
     final subtitleGeneration = beginSubtitleIntent(
@@ -3896,6 +3909,7 @@ class PlexClient
             options.preferredSubtitleTrack == null,
       );
 
+      ensureCurrentProfile();
       if (!data.hasValidVideoUrl) {
         throw PlaybackException(t.messages.fileInfoNotAvailable, reason: PlaybackFailureReason.noPlayableSource);
       }
@@ -3908,6 +3922,7 @@ class PlexClient
           save: (part, stream) =>
               selectSubtitleForPart(part, stream, ratingKey: options.metadata.id, generation: subtitleGeneration),
         );
+        ensureCurrentProfile();
         if (!identical(info, data.mediaInfo)) {
           data = PlexVideoPlaybackData(
             videoUrl: data.videoUrl,

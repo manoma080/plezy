@@ -22,6 +22,7 @@ import 'package:plezy/screens/media_detail_screen.dart';
 import 'package:plezy/services/plex_api_cache.dart';
 import 'package:plezy/services/jellyfin_api_cache.dart';
 import 'package:plezy/services/settings_service.dart';
+import 'package:plezy/utils/active_client_scope.dart';
 import 'package:provider/provider.dart';
 
 import '../test_helpers/backend_client_fixtures.dart';
@@ -61,6 +62,7 @@ void main() {
     'override off',
     'write failure',
     'navigate away',
+    'profile switch during metadata',
   ]) {
     testWidgets('Plex detail subtitle: $scenario', (tester) async {
       resetSharedPreferencesForTest();
@@ -75,10 +77,28 @@ void main() {
       final writes = <http.Request>[];
       final requests = <http.Request>[];
       final gate = scenario == 'navigate away' ? Completer<void>() : null;
+      final metadataGate = scenario == 'profile switch during metadata' ? Completer<void>() : null;
+      final metadataStarted = Completer<void>();
       final client = testPlexClient(
         serverId: ServerId('server-id'),
         handler: (request) async {
           requests.add(request);
+          if (request.url.path == '/') {
+            return http.Response(
+              jsonEncode({
+                'MediaContainer': {'machineIdentifier': 'server-id'},
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.url.path == '/media/providers') {
+            return http.Response(jsonEncode({'MediaContainer': {}}), 200);
+          }
+          if (metadataGate != null && request.url.path == '/library/metadata/42') {
+            if (!metadataStarted.isCompleted) metadataStarted.complete();
+            await metadataGate.future;
+          }
           if (request.method == 'PUT') {
             writes.add(request);
             return http.Response('', scenario == 'write failure' ? 500 : 200);
@@ -153,6 +173,20 @@ void main() {
           ),
         ),
       );
+      if (metadataGate != null) {
+        await tester.runAsync(() async {
+          await metadataStarted.future;
+          await client.applyProfileUpdate(
+            newToken: 'other',
+            newProfileScopeId: buildPlexProfileScopeId(serverId: ServerId('server-id'), profileId: 'other'),
+          );
+          await client.applyProfileUpdate(
+            newToken: 'token',
+            newProfileScopeId: buildPlexProfileScopeId(serverId: ServerId('server-id'), profileId: 'test-profile'),
+          );
+          metadataGate.complete();
+        });
+      }
       if (gate != null) {
         for (var i = 0; i < 10; i++) {
           await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));

@@ -589,13 +589,27 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         final overrideSetting =
             SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
             SubtitlePreferenceOverride.off;
+        final accountScopeCurrent = accountPreferences.captureActiveScope();
+        final subtitleServerId = serverIdOrNull(metadata.serverId);
+        final subtitleClient = subtitleServerId == null ? null : serverManager.getClient(subtitleServerId);
+        final subtitlePreferenceSession = subtitleClient is PlexClient ? subtitleClient.authenticationSessionId : null;
         if (isItemChange && initializationSubtitleTrack == null && overrideSetting != SubtitlePreferenceOverride.off) {
           await accountPreferences.ensureActiveLoaded();
-          if (!isCurrentReload()) return MediaReloadOutcome.superseded;
+          if (!isCurrentReload() ||
+              !accountScopeCurrent() ||
+              (subtitleClient is PlexClient &&
+                  !identical(subtitlePreferenceSession, subtitleClient.authenticationSessionId))) {
+            return MediaReloadOutcome.superseded;
+          }
         }
         final playbackResolver = PlaybackSourceResolver(serverManager: serverManager, database: database);
         await stoppedProgressFuture;
-        if (!isCurrentReload()) return MediaReloadOutcome.superseded;
+        if (!isCurrentReload() ||
+            !accountScopeCurrent() ||
+            (subtitleClient is PlexClient &&
+                !identical(subtitlePreferenceSession, subtitleClient.authenticationSessionId))) {
+          return MediaReloadOutcome.superseded;
+        }
         final playbackContext = await playbackResolver.resolve(
           PlaybackInitializationOptions(
             metadata: metadata,
@@ -608,6 +622,7 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
             preferredSubtitleTrack: initializationSubtitleTrack,
             subtitleOverride: isItemChange ? overrideSetting : SubtitlePreferenceOverride.off,
             subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
+            subtitlePreferenceSession: subtitlePreferenceSession,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             startPosition: openResumePosition,
