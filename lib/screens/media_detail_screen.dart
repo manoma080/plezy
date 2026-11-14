@@ -58,6 +58,7 @@ import '../services/download_storage_service.dart';
 import '../utils/download_version_utils.dart';
 import '../utils/download_utils.dart';
 import '../services/settings_service.dart';
+import '../services/subtitle_override_application.dart';
 import '../services/watch_actions.dart';
 import '../widgets/settings_builder.dart';
 import '../utils/layout_constants.dart';
@@ -1679,6 +1680,49 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
     }
   }
 
+  bool _openingSubtitlePreferenceStarted = false;
+
+  Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item) async {
+    if (_openingSubtitlePreferenceStarted) return;
+    _openingSubtitlePreferenceStarted = true;
+    final route = ModalRoute.of(context);
+    final account = context.read<AccountPreferencesController?>();
+    bool current() => _canUseDetail && route?.isCurrent != false;
+    try {
+      final settings = await SettingsService.getInstance();
+      final preference = settings.read(SettingsService.subtitlePreferenceOverride);
+      if (preference == SubtitlePreferenceOverride.off || !current() || account == null) return;
+      await account.ensureActiveLoaded();
+      if (!current()) return;
+      final language = account.activePreferences?.preferredSubtitleLanguage;
+      if (language == null) return;
+      final selection = await resolveSavedMediaVersionFor(item);
+      if (!current()) return;
+      final data = await client.getVideoPlaybackData(
+        item.id,
+        mediaIndex: selection?.index ?? 0,
+        selectedMediaSourceId: selection?.sourceId,
+        preferredVersionSignature: selection?.signature,
+        position: Duration(milliseconds: item.viewOffsetMs ?? 0),
+        forceRefresh: true,
+      );
+      final source = data.mediaInfo;
+      if (source == null || !current()) return;
+      final updated = await applySubtitleOverride(
+        source,
+        preference: preference,
+        language: language,
+        save: (part, stream) =>
+            !current() ? Future.value(false) : client.selectSubtitleForPart(part, stream, ratingKey: item.id),
+      );
+      if (!identical(source, updated) && _canUseDetail) {
+        _invalidatePlaybackProbes(refreshItems: true);
+      }
+    } catch (e, stackTrace) {
+      appLogger.d('Detail subtitle preference failed', error: e, stackTrace: stackTrace);
+    }
+  }
+
   Future<void> _loadFullMetadata() async {
     if (!_canUseDetail) return;
     _invalidatePlaybackProbes(refreshItems: true);
@@ -1787,6 +1831,9 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
 
       if (!_canUseDetail) return;
       final base = publish(metadata ?? _metadata, onDeckEpisode: result.onDeckEpisode, onDeckSettled: true);
+      if (client is PlexClient && (base.isMovie || base.isEpisode)) {
+        unawaited(_applyOpenedItemSubtitlePreference(client, base));
+      }
 
       if (base.isShow) {
         unawaited(_loadSeasons());
