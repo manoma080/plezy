@@ -195,6 +195,12 @@ class KeyEventSimulatorController {
     final heldFocusNode = _heldFocusNodes.remove(logicalKey);
     final focusNode = heldFocusNode ?? FocusManager.instance.primaryFocus;
     final event = _keyUpEvent(logicalKey, _physicalKeyFor(logicalKey), synthesized: cancelled);
+    // Back handlers commonly act on every key-up, including synthesized ones.
+    // Clear global press tracking without delivering a disconnect as Back.
+    if (cancelled && logicalKey == LogicalKeyboardKey.gameButtonB) {
+      observeSimulatedKeyEvent(event);
+      return;
+    }
     if (focusNode == null || (heldFocusNode != null && heldFocusNode.context == null)) {
       if (heldFocusNode != null && TextInputDiagnostics.enabled) {
         _log('simulateKeyUp dropped detached held focus logical=${logicalKey.keyLabel}/${logicalKey.keyId}');

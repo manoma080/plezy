@@ -6,6 +6,34 @@ import 'package:plezy/focus/dpad_select_long_press_controller.dart';
 import 'package:universal_gamepad/universal_gamepad.dart';
 
 void main() {
+  testWidgets('disconnecting while B is held does not trigger back', (tester) async {
+    var backs = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Focus(
+          autofocus: true,
+          onKeyEvent: (_, event) {
+            if (event.logicalKey == LogicalKeyboardKey.gameButtonB && event is KeyUpEvent) backs++;
+            return KeyEventResult.handled;
+          },
+          child: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pump();
+    final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));
+    service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
+    await tester.pump();
+    service.debugHandleGamepadEvent(_disconnect());
+    await tester.pump();
+    expect(backs, 0);
+    service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
+    await tester.pump();
+    service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: false));
+    await tester.pump();
+    expect(backs, 1);
+  });
+
   testWidgets('disconnecting while A is held does not activate on release', (tester) async {
     var activations = 0;
     final select = DpadSelectLongPressController();
