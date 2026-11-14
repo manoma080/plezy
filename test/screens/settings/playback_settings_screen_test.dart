@@ -19,6 +19,31 @@ void main() {
     LocaleSettings.setLocaleSync(AppLocale.en);
   });
 
+  testWidgets('subtitle preference offers all types and persists the choice', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1000, 1400);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(MaterialApp(theme: monoTheme(MonoPalette.dark), home: const PlaybackSettingsScreen()));
+    await tester.pumpAndSettle();
+    final title = find.text('Subtitle Preference Override');
+    await tester.scrollUntilVisible(title, 500, scrollable: find.byType(Scrollable).first);
+    final tile = find.widgetWithText(ListTile, 'Subtitle Preference Override');
+    expect(find.descendant(of: tile, matching: find.text('No override')), findsOneWidget);
+    await tester.tap(title);
+    await tester.pumpAndSettle();
+    for (final label in ['No override', 'Standard', 'CC', 'Forced', 'Signs']) {
+      expect(find.text(label), findsWidgets);
+    }
+    await tester.tap(find.text('Forced').last);
+    await tester.pumpAndSettle();
+    expect(
+      SettingsService.instance.read(SettingsService.subtitlePreferenceOverride),
+      SubtitlePreferenceOverride.forced,
+    );
+    expect(find.descendant(of: tile, matching: find.text('Forced')), findsOneWidget);
+  });
+
   testWidgets('shows and changes the persisted music quality', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1000, 1400);

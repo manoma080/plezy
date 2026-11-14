@@ -134,6 +134,15 @@ class PlaybackSettingsScreen extends StatelessWidget {
             SettingsGroup(
               title: t.settings.subtitles,
               children: [
+                SettingSelectionTile<SubtitlePreferenceOverride>(
+                  pref: SettingsService.subtitlePreferenceOverride,
+                  icon: Symbols.closed_caption_rounded,
+                  title: t.settings.subtitlePreferenceOverride,
+                  subtitleBuilder: _subtitlePreferenceLabel,
+                  options: SubtitlePreferenceOverride.values
+                      .map((value) => DialogOption(value: value, title: _subtitlePreferenceLabel(value)))
+                      .toList(),
+                ),
                 SettingNavigationTile(
                   icon: Symbols.subtitles_rounded,
                   title: t.settings.subtitleStyling,
@@ -154,6 +163,14 @@ class PlaybackSettingsScreen extends StatelessWidget {
       },
     );
   }
+
+  String _subtitlePreferenceLabel(SubtitlePreferenceOverride value) => switch (value) {
+    SubtitlePreferenceOverride.off => t.settings.subtitlePreferenceOff,
+    SubtitlePreferenceOverride.standard => t.settings.subtitlePreferenceStandard,
+    SubtitlePreferenceOverride.cc => t.settings.subtitlePreferenceCc,
+    SubtitlePreferenceOverride.forced => t.settings.subtitlePreferenceForced,
+    SubtitlePreferenceOverride.signs => t.settings.subtitlePreferenceSigns,
+  };
 
   Widget _seekAndTimingGroup() => SettingsGroup(
     title: t.settings.seekAndTiming,

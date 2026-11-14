@@ -779,6 +779,24 @@ class Translations$settings$en {
 	/// en: 'Customize subtitle appearance'
 	String get subtitleStylingDescription => 'Customize subtitle appearance';
 
+	/// en: 'Subtitle Preference Override'
+	String get subtitlePreferenceOverride => 'Subtitle Preference Override';
+
+	/// en: 'No override'
+	String get subtitlePreferenceOff => 'No override';
+
+	/// en: 'Standard'
+	String get subtitlePreferenceStandard => 'Standard';
+
+	/// en: 'CC'
+	String get subtitlePreferenceCc => 'CC';
+
+	/// en: 'Forced'
+	String get subtitlePreferenceForced => 'Forced';
+
+	/// en: 'Signs'
+	String get subtitlePreferenceSigns => 'Signs';
+
 	/// en: 'Small Skip Duration'
 	String get smallSkipDuration => 'Small Skip Duration';
 
@@ -8371,6 +8389,12 @@ extension on Translations {
 			'settings.musicQualityTitle' => 'Music Quality',
 			'settings.subtitleStyling' => 'Subtitle Styling',
 			'settings.subtitleStylingDescription' => 'Customize subtitle appearance',
+			'settings.subtitlePreferenceOverride' => 'Subtitle Preference Override',
+			'settings.subtitlePreferenceOff' => 'No override',
+			'settings.subtitlePreferenceStandard' => 'Standard',
+			'settings.subtitlePreferenceCc' => 'CC',
+			'settings.subtitlePreferenceForced' => 'Forced',
+			'settings.subtitlePreferenceSigns' => 'Signs',
 			'settings.smallSkipDuration' => 'Small Skip Duration',
 			'settings.largeSkipDuration' => 'Large Skip Duration',
 			'settings.rewindOnResume' => 'Rewind on Resume',
@@ -8622,14 +8646,14 @@ extension on Translations {
 			'themeEditor.startFromDescription' => 'Copy all colors from another theme',
 			'themeEditor.colors' => 'Colors',
 			'themeEditor.preview' => 'Preview',
+			_ => null,
+		} ?? switch (path) {
 			'themeEditor.slots.bg' => 'Background',
 			'themeEditor.slots.surface' => 'Surface',
 			'themeEditor.slots.outline' => 'Outline',
 			'themeEditor.slots.text' => 'Text',
 			'themeEditor.slots.textMuted' => 'Secondary text',
 			'themeEditor.slots.accent' => 'Accent',
-			_ => null,
-		} ?? switch (path) {
 			'themeEditor.opacity' => 'Opacity',
 			'themeEditor.hexHint' => '#RRGGBB or #AARRGGBB',
 			'themeEditor.fromOtherThemes' => 'From other themes',
@@ -9136,14 +9160,14 @@ extension on Translations {
 			'profiles.sourceProfileMissingParentAccount' => 'Source profile is missing its parent account.',
 			'profiles.failedToLoadHomeUsers' => 'Could not load your Plex Home users. Check your connection and try again.',
 			'profiles.failedToVerifyPin' => 'Failed to verify PIN.',
+			_ => null,
+		} ?? switch (path) {
 			'profiles.newProfile' => 'New profile',
 			'profiles.profileNameHint' => 'e.g. Guests, Kids, Family Room',
 			'profiles.pinProtectionOptional' => 'PIN protection (optional)',
 			'profiles.pinExplain' => '4-digit PIN required to switch profiles.',
 			'profiles.continueButton' => 'Continue',
 			'profiles.pinsDontMatch' => 'PINs don\'t match',
-			_ => null,
-		} ?? switch (path) {
 			'profiles.tokenIdentityMismatch' => 'The Plex profile token resolved to an unexpected server',
 			'connections.sectionTitle' => 'Connections',
 			'connections.addConnection' => 'Add connection',
@@ -9650,14 +9674,14 @@ extension on Translations {
 			'liveTv.recordingsCount' => ({required Object count}) => '${count} scheduled',
 			'liveTv.editRule' => 'Edit rule',
 			'liveTv.editRuleAction' => 'Edit',
+			_ => null,
+		} ?? switch (path) {
 			'liveTv.recordingRuleUpdated' => 'Recording rule updated',
 			'liveTv.guideReloadRequested' => 'Guide refresh requested',
 			'liveTv.guideReloadFailed' => 'Couldn\'t refresh the guide',
 			'liveTv.rulesProcessRequested' => 'Rule re-evaluation requested',
 			'liveTv.rulesProcessFailed' => 'Couldn\'t re-evaluate recording rules',
 			'liveTv.recordShow' => 'Record show',
-			_ => null,
-		} ?? switch (path) {
 			'liveTv.recordSettings.startEarly' => 'Start early (seconds)',
 			'liveTv.recordSettings.endLate' => 'End late (seconds)',
 			'liveTv.recordSettings.newOnly' => 'Only new episodes',
@@ -10164,14 +10188,14 @@ extension on Translations {
 			'performanceOverlay.minLuma' => 'Min Luma',
 			'performanceOverlay.maxCll' => 'MaxCLL',
 			'performanceOverlay.maxFall' => 'MaxFALL',
+			_ => null,
+		} ?? switch (path) {
 			'performanceOverlay.cacheUsed' => 'Cache Used',
 			'performanceOverlay.cacheLimit' => 'Cache Limit',
 			'performanceOverlay.speed' => 'Speed',
 			'performanceOverlay.player' => 'Player',
 			'performanceOverlay.playMethod' => 'Play Method',
 			'performanceOverlay.memory' => 'Memory',
-			_ => null,
-		} ?? switch (path) {
 			'performanceOverlay.uiFps' => 'UI FPS',
 			'performanceOverlay.fps' => 'FPS',
 			'performanceOverlay.decoderAndroidHw' => 'Android HW',
