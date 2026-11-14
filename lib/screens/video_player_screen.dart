@@ -456,10 +456,10 @@ _PlaybackOpenTiming _playbackOpenTiming({
 /// the show-wide audio/subtitle language default (#1393): an in-player track
 /// change should not silently rewrite the whole series' Plex prefs. The
 /// explicit path for that lives in the metadata-edit UI.
-TrackPreferencePersister _plexTrackPersister(PlexClient client) {
+TrackPreferencePersister _plexTrackPersister(PlexClient client, String ratingKey) {
   return ({required int partId, required String trackType, required int streamID}) => trackType == 'audio'
       ? client.selectStreams(partId, audioStreamID: streamID)
-      : client.selectStreams(partId, subtitleStreamID: streamID);
+      : client.selectStreams(partId, subtitleStreamID: streamID, ratingKey: ratingKey);
 }
 
 /// Builds a [TrackSelectionMemoryEnabler] for the MediaBrowser account

@@ -715,7 +715,7 @@ extension _VideoPlayerOpenMethods on VideoPlayerScreenState {
       // Plex writes track changes immediately. MediaBrowser persists selected
       // indexes through playback progress reports and only needs the account
       // told to keep them.
-      persistTrackPreference: mediaClient is PlexClient ? _plexTrackPersister(mediaClient) : null,
+      persistTrackPreference: mediaClient is PlexClient ? _plexTrackPersister(mediaClient, _currentMetadata.id) : null,
       enableTrackSelectionMemory: mediaClient is JellyfinClient
           ? _mediaBrowserTrackMemoryEnabler(mediaClient, context.read<AccountPreferencesController>())
           : null,

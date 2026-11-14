@@ -179,7 +179,7 @@ void main() {
     final client = testPlexClient(serverId: ServerId('manual-isolation'), handler: (_) async => http.Response('', 200));
     addTearDown(client.close);
     final automatic = client.beginSubtitleIntent('42');
-    await client.selectStreams(100, subtitleStreamID: 0);
+    await client.selectStreams(100, subtitleStreamID: 0, ratingKey: '43');
     expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: automatic), isTrue);
   });
 

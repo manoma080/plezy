@@ -195,6 +195,7 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         }
         final saved = await streamSelectClient.selectStreams(
           partId,
+          ratingKey: _currentMetadata.id,
           audioStreamID: isAudioChange ? effectiveAudioStreamId : null,
           // Plex's wire API uses 0 for Off. Keep that convention at this
           // backend boundary so it cannot collide with Jellyfin source ids.
