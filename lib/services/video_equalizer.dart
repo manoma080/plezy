@@ -74,6 +74,21 @@ class VideoEqualizer {
     }
   });
 
+  /// Capture only after earlier slider writes have completed.
+  Future<Map<String, int>> snapshot() async {
+    late Map<String, int> result;
+    await _enqueue(() async {
+      result = {for (final control in VideoEqualizerControl.values) control.name: value(control)};
+    });
+    return result;
+  }
+
+  Future<void> applyValues(Map<String, int> values) => _enqueue(() async {
+    for (final control in VideoEqualizerControl.values) {
+      await _set(control, values[control.name] ?? 0);
+    }
+  });
+
   Future<void> reset() => _enqueue(() async {
     for (final control in VideoEqualizerControl.values) {
       await _set(control, 0);
