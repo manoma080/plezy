@@ -6,12 +6,67 @@ import 'package:plezy/services/plex_api_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:plezy/media/ids.dart';
+import 'package:plezy/utils/active_client_scope.dart';
 import 'package:plezy/screens/video_player_screen.dart';
 import 'package:plezy/mpv/mpv.dart';
 
 import '../test_helpers/backend_client_fixtures.dart';
 
 void main() {
+  test('queued subtitle writes are dropped after a profile switch', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final server = ServerId('profile-switch');
+    final scopeA = buildPlexProfileScopeId(serverId: server, profileId: 'a');
+    final scopeB = buildPlexProfileScopeId(serverId: server, profileId: 'b');
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final writes = <String>[];
+    final client = testPlexClient(
+      serverId: server,
+      profileScopeId: scopeA,
+      token: 'token-a',
+      handler: (request) async {
+        if (request.url.path == '/') {
+          return http.Response(
+            '{"MediaContainer":{"machineIdentifier":"profile-switch"}}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/media/providers') {
+          return http.Response('{"MediaContainer":{}}', 200, headers: {'content-type': 'application/json'});
+        }
+        final id = request.url.queryParameters['subtitleStreamID']!;
+        writes.add('$id:${request.headers['X-Plex-Token'] ?? request.headers['x-plex-token']}');
+        if (id == '401') {
+          started.complete();
+          await release.future;
+        }
+        return http.Response('', 200);
+      },
+    );
+    addTearDown(client.close);
+    const endpoint = '/library/metadata/42';
+    await client.cache.put(scopeA.cacheServerId, endpoint, {'profile': 'a'});
+    await client.cache.put(scopeB.cacheServerId, endpoint, {'profile': 'b'});
+    final first = client.selectSubtitleForPart(99, 401, ratingKey: '42');
+    await started.future;
+    final automatic = client.selectSubtitleForPart(99, 402, ratingKey: '42');
+    final manual = client.selectStreams(99, subtitleStreamID: 0);
+    await client.applyProfileUpdate(newToken: 'token-b', newProfileScopeId: scopeB);
+    release.complete();
+    expect(await first, isTrue);
+    expect(await automatic, isFalse);
+    expect(await manual, isFalse);
+    expect(writes, ['401:token-a']);
+    expect(await client.cache.getIfFresh(scopeA.cacheServerId, endpoint, maxAge: const Duration(days: 1)), isNull);
+    expect(await client.cache.getIfFresh(scopeB.cacheServerId, endpoint, maxAge: const Duration(days: 1)), {
+      'profile': 'b',
+    });
+  });
+
   test('automatic choice is not carried over an enabled episode override', () {
     expect(
       subtitlePreferenceForItemChange(

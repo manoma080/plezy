@@ -1478,8 +1478,7 @@ class PlexClient
     if ((_subtitleItemIntents[key] ?? 0) < generation) _subtitleItemIntents[key] = generation;
   }
 
-  bool _subtitleIntentCurrent(String ratingKey, int partId, int generation) {
-    final server = cacheServerId;
+  bool _subtitleIntentCurrent(String server, String ratingKey, int partId, int generation) {
     if ((_subtitleItemIntents[(server, ratingKey)] ?? 0) > generation) return false;
     if ((_subtitleManualParts[(server, partId)] ?? 0) > generation) return false;
     for (final entry in _subtitleManualParts.entries) {
@@ -1492,12 +1491,16 @@ class PlexClient
 
   Future<bool> _serializeSubtitleWrite(Future<bool> Function() write, {bool Function()? current}) async {
     final key = cacheServerId;
+    // Queued requests use mutable HTTP headers. Never dispatch an old intent
+    // after the client's authentication session has changed, even if the
+    // profile later switches back to the same identity.
+    final session = _authenticationSessionId;
     final previous = _subtitleWrites[key];
     final done = Completer<void>();
     _subtitleWrites[key] = done.future;
     try {
       if (previous != null) await previous;
-      if (current != null && !current()) return false;
+      if (!identical(session, _authenticationSessionId) || (current != null && !current())) return false;
       final saved = await write();
       return saved && (current == null || current());
     } finally {
@@ -1545,7 +1548,8 @@ class PlexClient
 
   /// Persist a subtitle choice for one part, without affecting other parts.
   Future<bool> selectSubtitleForPart(int partId, int streamId, {required String ratingKey, int? generation}) async {
-    _subtitlePartItems[(cacheServerId, partId)] = ratingKey;
+    final scope = cacheServerId;
+    _subtitlePartItems[(scope, partId)] = ratingKey;
     final bool saved;
     try {
       saved = await _serializeSubtitleWrite(
@@ -1553,14 +1557,14 @@ class PlexClient
           () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
           'Failed to select subtitle',
         ),
-        current: generation == null ? null : () => _subtitleIntentCurrent(ratingKey, partId, generation),
+        current: generation == null ? null : () => _subtitleIntentCurrent(scope, ratingKey, partId, generation),
       );
     } catch (_) {
       return false;
     }
     if (saved) {
       try {
-        await cache.invalidateFreshness(ServerId(cacheServerId), '/library/metadata/$ratingKey');
+        await cache.invalidateFreshness(ServerId(scope), '/library/metadata/$ratingKey');
       } catch (e, st) {
         appLogger.w('Subtitle saved but metadata cache invalidation failed', error: e, stackTrace: st);
       }
