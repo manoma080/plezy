@@ -79,6 +79,22 @@ void main() {
       2,
     );
   });
+  test('matches recognized three-letter-only languages and locale variants', () {
+    for (final (preference, actual) in [('ast', 'AST'), ('ast-ES', 'ast_ES'), ('aaa', 'aaa-US')]) {
+      final candidate = track(10, languageCode: actual);
+      expect(selectPreferredSubtitle([candidate], languageCode: preference, kind: SubtitleKind.standard), candidate);
+    }
+    for (final code in ['zzz', 'und', 'qaa']) {
+      expect(
+        selectPreferredSubtitle(
+          [track(11, languageCode: code)],
+          languageCode: code,
+          kind: SubtitleKind.standard,
+        ),
+        isNull,
+      );
+    }
+  });
   test('single-kind matches outrank earlier conflicting multi-kind tracks', () {
     final tracks = [track(1, title: 'CC Signs'), track(2, title: 'CC')];
     expect(selectPreferredSubtitle(tracks, languageCode: 'en', kind: SubtitleKind.cc)?.id, 2);

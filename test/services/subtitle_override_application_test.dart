@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plezy/media/media_source_info.dart';
 import 'package:plezy/services/settings_service.dart';
 import 'package:plezy/services/subtitle_override_application.dart';
+import 'package:plezy/utils/app_logger.dart';
 
 void main() {
   test('does not change selection on failed or throwing server write', () async {
@@ -19,6 +20,7 @@ void main() {
       (_, _) async => false,
       (_, _) async => throw StateError('unavailable'),
     ]) {
+      MemoryLogOutput.clearLogs();
       final result = await applySubtitleOverride(
         source,
         preference: SubtitlePreferenceOverride.cc,
@@ -26,6 +28,10 @@ void main() {
         save: save,
       );
       expect(result, same(source));
+      expect(
+        MemoryLogOutput.getLogs().any((entry) => entry.message.contains('Failed to save subtitle override')),
+        isTrue,
+      );
     }
   });
   test('off, missing language or part, and no matching track never write', () async {

@@ -1,3 +1,4 @@
+import '../data/iso_639_three_letter_codes.dart';
 import '../utils/language_codes.dart';
 import 'media_source_info.dart';
 
@@ -58,7 +59,8 @@ String? _language(String? code) {
   if (code == null) return null;
   final normalized = code.trim().toLowerCase().split(RegExp('[-_]')).first;
   if (!RegExp(r'^[a-z]{2,3}$').hasMatch(normalized) || normalized == 'und') return null;
-  return LanguageCodes.getIso6391Code(normalized);
+  return LanguageCodes.getIso6391Code(normalized) ??
+      (iso639ThreeLetterCodes.contains(',$normalized,') ? normalized : null);
 }
 
 /// Prefers an exact kind over a multi-kind match, preserving server order
