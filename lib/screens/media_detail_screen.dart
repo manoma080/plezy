@@ -1685,7 +1685,7 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
   Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item) async {
     if (_openingSubtitlePreferenceStarted) return;
     _openingSubtitlePreferenceStarted = true;
-    final subtitleGeneration = client.beginSubtitleIntent();
+    final subtitleGeneration = client.beginSubtitleIntent(item.id, supersede: false);
     final confirmSelectedSubtitle = client.hasPendingSubtitleWrites;
     final route = ModalRoute.of(context);
     final account = context.read<AccountPreferencesController?>();
@@ -1694,11 +1694,14 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
       final settings = await SettingsService.getInstance();
       final preference = settings.read(SettingsService.subtitlePreferenceOverride);
       if (preference == SubtitlePreferenceOverride.off || !current() || account == null) return;
+      client.activateSubtitleIntent(item.id, subtitleGeneration);
       await account.ensureActiveLoaded();
       if (!current()) return;
       final language = account.activePreferences?.preferredSubtitleLanguage;
       if (language == null) return;
       final selection = await resolveSavedMediaVersionFor(item);
+      if (!current()) return;
+      if (confirmSelectedSubtitle) await client.waitForPendingSubtitleWrites();
       if (!current()) return;
       final data = await client.getVideoPlaybackData(
         item.id,

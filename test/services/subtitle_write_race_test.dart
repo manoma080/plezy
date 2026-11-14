@@ -37,9 +37,138 @@ void main() {
       },
     );
     addTearDown(client.close);
-    final old = client.beginSubtitleIntent();
+    final old = client.beginSubtitleIntent('42');
     await client.selectStreams(99, subtitleStreamID: 0);
     expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: old), isFalse);
+    expect(writes, ['0']);
+  });
+
+  test('writes on different parts serialize for allParts safety', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final second = Completer<void>();
+    final client = testPlexClient(
+      serverId: ServerId('independent-parts'),
+      handler: (request) async {
+        if (request.url.path.endsWith('/99')) {
+          started.complete();
+          await release.future;
+        } else {
+          second.complete();
+        }
+        return http.Response('', 200);
+      },
+    );
+    addTearDown(client.close);
+    final first = client.selectSubtitleForPart(99, 402, ratingKey: '42');
+    await started.future;
+    final other = client.selectSubtitleForPart(100, 403, ratingKey: '43');
+    final independent = await Future.any([
+      second.future.then((_) => true),
+      Future.delayed(const Duration(milliseconds: 100), () => false),
+    ]);
+    release.complete();
+    await Future.wait([first, other]);
+    expect(independent, isFalse);
+  });
+
+  test('unrelated item intent does not cancel an earlier burn selection', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final client = testPlexClient(serverId: ServerId('item-isolation'), handler: (_) async => http.Response('', 200));
+    addTearDown(client.close);
+    final old = client.beginSubtitleIntent('42');
+    client.beginSubtitleIntent('43');
+    expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: old), isTrue);
+  });
+
+  test('off-default snapshot does not supersede an active item intent', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final client = testPlexClient(serverId: ServerId('off-snapshot'), handler: (_) async => http.Response('', 200));
+    addTearDown(client.close);
+    final active = client.beginSubtitleIntent('42');
+    client.beginSubtitleIntent('42', supersede: false);
+    expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: active), isTrue);
+  });
+
+  test('manual allParts invalidates a delayed automatic sibling selection', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final writes = <String>[];
+    final client = testPlexClient(
+      serverId: ServerId('sibling'),
+      handler: (request) async {
+        writes.add(request.url.queryParameters['subtitleStreamID']!);
+        return http.Response('', 200);
+      },
+    );
+    addTearDown(client.close);
+    await client.selectSubtitleForPart(99, 401, ratingKey: '42');
+    final automatic = client.beginSubtitleIntent('42');
+    await client.selectStreams(99, subtitleStreamID: 0);
+    expect(await client.selectSubtitleForPart(100, 402, ratingKey: '42', generation: automatic), isFalse);
+    expect(writes, ['401', '0']);
+  });
+
+  test('an unrelated manual choice does not cancel an automatic selection', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final client = testPlexClient(serverId: ServerId('manual-isolation'), handler: (_) async => http.Response('', 200));
+    addTearDown(client.close);
+    final automatic = client.beginSubtitleIntent('42');
+    await client.selectStreams(100, subtitleStreamID: 0);
+    expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: automatic), isTrue);
+  });
+
+  test('successful server selection survives cache invalidation failure', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    await db.customSelect('SELECT 1').get();
+    await db.close();
+    await expectLater(
+      PlexApiCache.instance.invalidateFreshness(ServerId('cache-failure'), '/library/metadata/42'),
+      throwsA(anything),
+    );
+    final client = testPlexClient(serverId: ServerId('cache-failure'), handler: (_) async => http.Response('', 200));
+    addTearDown(client.close);
+    expect(await client.selectSubtitleForPart(99, 402, ratingKey: '42'), isTrue);
+  });
+
+  test('delayed manual write takes priority over an automatic intent started while pending', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    PlexApiCache.initialize(db);
+    addTearDown(db.close);
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final writes = <String>[];
+    final client = testPlexClient(
+      serverId: ServerId('delayed-manual'),
+      handler: (request) async {
+        final id = request.url.queryParameters['subtitleStreamID']!;
+        writes.add(id);
+        if (id == '0') {
+          started.complete();
+          await release.future;
+        }
+        return http.Response('', 200);
+      },
+    );
+    addTearDown(client.close);
+    final manual = client.selectStreams(99, subtitleStreamID: 0);
+    await started.future;
+    final token = client.beginSubtitleIntent('42');
+    final automatic = client.selectSubtitleForPart(99, 402, ratingKey: '42', generation: token);
+    release.complete();
+    expect(await manual, isTrue);
+    expect(await automatic, isFalse);
     expect(writes, ['0']);
   });
 

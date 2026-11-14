@@ -1450,22 +1450,56 @@ class PlexClient
   // Subtitle PUTs can finish out of order, including across client instances.
   // Serialize per server because allParts=1 may also affect sibling parts.
   static final Map<String, Future<void>> _subtitleWrites = {};
-  static final Map<String, int> _subtitleGenerations = {};
+  // Sequence numbers are server-wide, but invalidation is scoped to the item
+  // or part affected. The queue remains server-wide because allParts=1 can
+  // touch siblings whose IDs are not known at the call site.
+  static int _subtitleSequence = 0;
+  static final Map<(String, String), int> _subtitleItemIntents = {};
+  static final Map<(String, int), int> _subtitleManualParts = {};
+  static final Map<(String, int), String> _subtitlePartItems = {};
 
   bool get hasPendingSubtitleWrites => _subtitleWrites.containsKey(cacheServerId);
 
-  int beginSubtitleIntent() => _subtitleGenerations.update(cacheServerId, (n) => n + 1, ifAbsent: () => 1);
+  /// Wait for writes already queued before reading fresh metadata. New writes
+  /// or external Plex clients may still race the subsequent read.
+  Future<void> waitForPendingSubtitleWrites() async {
+    final pending = _subtitleWrites[cacheServerId];
+    if (pending != null) await pending;
+  }
 
-  Future<bool> _serializeSubtitleWrite(Future<bool> Function() write, {int? generation}) async {
+  int beginSubtitleIntent(String ratingKey, {bool supersede = true}) {
+    final sequence = ++_subtitleSequence;
+    if (supersede) activateSubtitleIntent(ratingKey, sequence);
+    return sequence;
+  }
+
+  void activateSubtitleIntent(String ratingKey, int generation) {
+    final key = (cacheServerId, ratingKey);
+    if ((_subtitleItemIntents[key] ?? 0) < generation) _subtitleItemIntents[key] = generation;
+  }
+
+  bool _subtitleIntentCurrent(String ratingKey, int partId, int generation) {
+    final server = cacheServerId;
+    if ((_subtitleItemIntents[(server, ratingKey)] ?? 0) > generation) return false;
+    if ((_subtitleManualParts[(server, partId)] ?? 0) > generation) return false;
+    for (final entry in _subtitleManualParts.entries) {
+      if (entry.key.$1 == server && entry.value > generation && _subtitlePartItems[entry.key] == ratingKey) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<bool> _serializeSubtitleWrite(Future<bool> Function() write, {bool Function()? current}) async {
     final key = cacheServerId;
     final previous = _subtitleWrites[key];
     final done = Completer<void>();
     _subtitleWrites[key] = done.future;
     try {
       if (previous != null) await previous;
-      if (generation != null && _subtitleGenerations[key] != generation) return false;
+      if (current != null && !current()) return false;
       final saved = await write();
-      return saved && (generation == null || _subtitleGenerations[key] == generation);
+      return saved && (current == null || current());
     } finally {
       done.complete();
       if (identical(_subtitleWrites[key], done.future)) {
@@ -1496,12 +1530,22 @@ class PlexClient
       'Failed to select streams',
     );
     if (subtitleStreamID == null) return write();
-    beginSubtitleIntent();
-    return _serializeSubtitleWrite(write);
+    final manualKey = (cacheServerId, partId);
+    _subtitleManualParts[manualKey] = ++_subtitleSequence;
+    return _serializeSubtitleWrite(() async {
+      try {
+        return await write();
+      } finally {
+        // An automatic intent created while the manual PUT was pending must
+        // not undo that explicit choice once the queue advances.
+        _subtitleManualParts[manualKey] = ++_subtitleSequence;
+      }
+    });
   }
 
   /// Persist a subtitle choice for one part, without affecting other parts.
   Future<bool> selectSubtitleForPart(int partId, int streamId, {required String ratingKey, int? generation}) async {
+    _subtitlePartItems[(cacheServerId, partId)] = ratingKey;
     final bool saved;
     try {
       saved = await _serializeSubtitleWrite(
@@ -1509,13 +1553,17 @@ class PlexClient
           () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
           'Failed to select subtitle',
         ),
-        generation: generation,
+        current: generation == null ? null : () => _subtitleIntentCurrent(ratingKey, partId, generation),
       );
     } catch (_) {
       return false;
     }
     if (saved) {
-      await cache.invalidateFreshness(ServerId(cacheServerId), '/library/metadata/$ratingKey');
+      try {
+        await cache.invalidateFreshness(ServerId(cacheServerId), '/library/metadata/$ratingKey');
+      } catch (e, st) {
+        appLogger.w('Subtitle saved but metadata cache invalidation failed', error: e, stackTrace: st);
+      }
     }
     return saved;
   }
@@ -3797,9 +3845,18 @@ class PlexClient
   /// independently selectable through the returned sidecar catalog.
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
-    final subtitleGeneration = beginSubtitleIntent();
+    final subtitleGeneration = beginSubtitleIntent(
+      options.metadata.id,
+      supersede:
+          options.subtitleOverride != SubtitlePreferenceOverride.off &&
+          options.preferredSubtitleTrack == null &&
+          options.metadata.kind != MediaKind.track,
+    );
     final confirmSelectedSubtitle = hasPendingSubtitleWrites;
     try {
+      if (confirmSelectedSubtitle && options.subtitleOverride != SubtitlePreferenceOverride.off) {
+        await waitForPendingSubtitleWrites();
+      }
       var data = await getVideoPlaybackData(
         options.metadata.id,
         mediaIndex: options.selectedMediaIndex,
