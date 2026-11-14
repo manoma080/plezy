@@ -1358,11 +1358,8 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
           !(OverlaySheetController.maybeOf(_sheetContext)?.isOpen ?? false),
       onSeek: (direction) {
         if (!_canControlPlayback()) return;
-        final large = direction == TraversalDirection.up || direction == TraversalDirection.down;
-        final forward = direction == TraversalDirection.right || direction == TraversalDirection.up;
-        final seconds = SettingsService.instance.read(
-          large ? SettingsService.seekTimeLarge : SettingsService.seekTimeSmall,
-        );
+        final forward = direction == TraversalDirection.right;
+        final seconds = SettingsService.instance.read(SettingsService.seekTimeSmall);
         _seekRelative(Duration(seconds: forward ? seconds : -seconds));
       },
     );

@@ -4,7 +4,7 @@ import 'package:plezy/services/gamepad_service.dart';
 import 'package:universal_gamepad/universal_gamepad.dart';
 
 void main() {
-  testWidgets('right stick emits four directions once per deflection', (tester) async {
+  testWidgets('right stick seeks horizontally once per deflection and ignores vertical', (tester) async {
     final directions = <TraversalDirection>[];
     final owner = Object();
     GamepadService.registerRightStickSeek(owner, onSeek: directions.add, isActive: () => true);
@@ -20,8 +20,6 @@ void main() {
     expect(directions, [
       TraversalDirection.left,
       TraversalDirection.right,
-      TraversalDirection.up,
-      TraversalDirection.down,
     ]);
   });
 }

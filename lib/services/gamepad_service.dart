@@ -230,7 +230,6 @@ class GamepadService with WindowListener {
   TraversalDirection? _leftStickYLatch;
   TraversalDirection? _leftStickXLatch;
   TraversalDirection? _rightStickXLatch;
-  TraversalDirection? _rightStickYLatch;
 
   final Set<GamepadButton> _pressedButtons = {};
   final Set<GamepadButton> _suppressedButtons = {};
@@ -348,7 +347,6 @@ class GamepadService with WindowListener {
     _leftStickYLatch = null;
     _leftStickXLatch = null;
     _rightStickXLatch = null;
-    _rightStickYLatch = null;
   }
 
   void _registerNativeKeyHandler() {
@@ -591,12 +589,8 @@ class GamepadService with WindowListener {
           TraversalDirection.right,
         );
       case GamepadAxis.rightStickY:
-        _rightStickYLatch = _seekStickAxis(
-          event.value,
-          _rightStickYLatch,
-          TraversalDirection.up,
-          TraversalDirection.down,
-        );
+        // Do not turn vertical deflections into playback seeks.
+        break;
     }
   }
 
