@@ -33,6 +33,7 @@ import 'bif_thumbnail_service.dart';
 import 'file_info_parser.dart';
 import 'download_artwork_helpers.dart';
 import 'settings_service.dart';
+import 'subtitle_override_application.dart';
 import 'library_query_translator.dart';
 import 'scrub_preview_source.dart';
 import '../utils/media_server_http_client.dart';
@@ -2892,7 +2893,7 @@ class PlexClient
     bool withholdDirectPlay = false,
   }) async {
     try {
-      await selectSubtitleStreamForBurn(partId: partId, track: selectedSubtitleTrack);
+      await selectSubtitleStreamForBurn(partId: partId, track: selectedSubtitleTrack, ratingKey: ratingKey);
       Map<String, String> paramsFor({required bool useTsFallbackTarget}) => _buildTranscodeParams(
         ratingKey: ratingKey,
         mediaIndex: mediaIndex,
@@ -2957,13 +2958,19 @@ class PlexClient
   /// unconfirmed selection paints whatever the server had stored — a wrong
   /// language welded into the picture that the viewer cannot switch off.
   @visibleForTesting
-  Future<void> selectSubtitleStreamForBurn({required int? partId, required MediaSubtitleTrack? track}) async {
+  Future<void> selectSubtitleStreamForBurn({
+    required int? partId,
+    required MediaSubtitleTrack? track,
+    String? ratingKey,
+  }) async {
     final burnTarget = _selectedInternalSubtitleForHls(track);
     if (burnTarget == null) return;
     if (partId == null) {
       throw StateError('Cannot burn subtitle stream ${burnTarget.id}: no part id to select it on');
     }
-    if (!await selectStreams(partId, subtitleStreamID: burnTarget.id)) {
+    if (!(ratingKey == null
+        ? await selectStreams(partId, subtitleStreamID: burnTarget.id)
+        : await selectSubtitleForPart(partId, burnTarget.id, ratingKey: ratingKey))) {
       throw StateError('Server refused to select subtitle stream ${burnTarget.id} on part $partId for burn-in');
     }
   }
@@ -3751,16 +3758,39 @@ class PlexClient
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
     try {
-      final data = await getVideoPlaybackData(
+      var data = await getVideoPlaybackData(
         options.metadata.id,
         mediaIndex: options.selectedMediaIndex,
         selectedMediaSourceId: options.selectedMediaSourceId,
         preferredVersionSignature: options.preferredVersionSignature,
         position: options.startPosition,
+        forceRefresh:
+            options.subtitleOverride != SubtitlePreferenceOverride.off &&
+            options.subtitleOverrideLanguage != null &&
+            options.preferredSubtitleTrack == null,
       );
 
       if (!data.hasValidVideoUrl) {
         throw PlaybackException(t.messages.fileInfoNotAvailable, reason: PlaybackFailureReason.noPlayableSource);
+      }
+      if (options.metadata.kind != MediaKind.track &&
+          options.preferredSubtitleTrack == null &&
+          data.mediaInfo != null) {
+        final info = await applySubtitleOverride(
+          data.mediaInfo!,
+          preference: options.subtitleOverride,
+          language: options.subtitleOverrideLanguage,
+          save: (part, stream) => selectSubtitleForPart(part, stream, ratingKey: options.metadata.id),
+        );
+        if (!identical(info, data.mediaInfo)) {
+          data = PlexVideoPlaybackData(
+            videoUrl: data.videoUrl,
+            mediaInfo: info,
+            availableVersions: data.availableVersions,
+            selectedMediaIndex: data.selectedMediaIndex,
+            selectedPartIndex: data.selectedPartIndex,
+          );
+        }
       }
       final carriedAudioTrack = options.selectedAudioStreamId == null ? options.preferredAudioTrack : null;
       final carriedAudioStreamId = carriedAudioTrack == null || data.mediaInfo == null

@@ -1780,6 +1780,12 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
               cellularDefault: settingsService.read(SettingsService.cellularQualityPreset),
               generalDefault: settingsService.read(SettingsService.defaultQualityPreset),
             );
+        final accountPreferences = context.read<AccountPreferencesController>();
+        if (settingsService.read(SettingsService.subtitlePreferenceOverride) != SubtitlePreferenceOverride.off &&
+            _preferredSubtitleTrack == null) {
+          await accountPreferences.ensureActiveLoaded();
+          if (!mounted) return;
+        }
         final playbackResolver = PlaybackSourceResolver(
           serverManager: context.read<MultiServerProvider>().serverManager,
           database: context.read<AppDatabase>(),
@@ -1794,6 +1800,8 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
             selectedAudioStreamId: _selectedAudioStreamId,
             preferredAudioTrack: _preferredAudioTrack,
             preferredSubtitleTrack: _preferredSubtitleTrack,
+            subtitleOverride: settingsService.read(SettingsService.subtitlePreferenceOverride),
+            subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             // The same resume the open will land on (see

@@ -578,6 +578,14 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         );
         if (!isCurrentReload()) return MediaReloadOutcome.superseded;
 
+        final overrideSetting =
+            SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
+            SubtitlePreferenceOverride.off;
+        final accountPreferences = context.read<AccountPreferencesController>();
+        if (isItemChange && initializationSubtitleTrack == null && overrideSetting != SubtitlePreferenceOverride.off) {
+          await accountPreferences.ensureActiveLoaded();
+          if (!isCurrentReload()) return MediaReloadOutcome.superseded;
+        }
         final playbackResolver = PlaybackSourceResolver(serverManager: serverManager, database: database);
         await stoppedProgressFuture;
         if (!isCurrentReload()) return MediaReloadOutcome.superseded;
@@ -591,6 +599,8 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
             selectedAudioStreamId: targetAudioStreamId,
             preferredAudioTrack: initializationAudioTrack,
             preferredSubtitleTrack: initializationSubtitleTrack,
+            subtitleOverride: isItemChange ? overrideSetting : SubtitlePreferenceOverride.off,
+            subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             startPosition: openResumePosition,

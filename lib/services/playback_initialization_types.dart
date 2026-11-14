@@ -8,6 +8,7 @@ import '../models/audio_quality_preset.dart';
 import '../models/transcode_quality_preset.dart';
 import '../mpv/mpv.dart';
 import 'subtitle_preference.dart';
+import 'settings_service.dart';
 
 /// Inputs for [MediaServerClient.getPlaybackInitialization]. Most fields
 /// are backend-specific knobs (transcode preset, audio stream, session ids).
@@ -55,6 +56,10 @@ class PlaybackInitializationOptions {
   /// sidecar-capable backends keep subtitle delivery independent.
   final SubtitlePreference? preferredSubtitleTrack;
 
+  /// Optional automatic Plex subtitle preference for a fresh playback.
+  final SubtitlePreferenceOverride subtitleOverride;
+  final String? subtitleOverrideLanguage;
+
   /// Plex transcode `X-Plex-Session-Identifier`. Required for Plex transcode.
   final String? sessionIdentifier;
 
@@ -85,6 +90,8 @@ class PlaybackInitializationOptions {
     this.selectedAudioStreamId,
     this.preferredAudioTrack,
     this.preferredSubtitleTrack,
+    this.subtitleOverride = SubtitlePreferenceOverride.off,
+    this.subtitleOverrideLanguage,
     this.sessionIdentifier,
     this.transcodeSessionId,
     this.startPosition,
