@@ -282,7 +282,7 @@ void main() {
       expect(notifications, 0);
     });
 
-    testWidgets('interaction region shows on hover and hides on exit', (tester) async {
+    testWidgets('interaction region ignores hidden hover and still hides on exit', (tester) async {
       final controller = PlayerChromeController();
       addTearDown(controller.dispose);
       controller.hide();
@@ -308,6 +308,9 @@ void main() {
       await mouse.addPointer(location: const Offset(250, 250));
       await tester.pump();
       await mouse.moveTo(const Offset(20, 20));
+      await tester.pump();
+      expect(controller.controlsVisible, isFalse);
+      controller.show();
       await tester.pump();
       expect(controller.controlsVisible, isTrue);
 

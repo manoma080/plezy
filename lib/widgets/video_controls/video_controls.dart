@@ -1224,8 +1224,8 @@ class _PlexVideoControlsState extends State<PlexVideoControls>
             onPointerSignal: _handlePointerSignal,
             onPointerPanZoomStart: (_) => _cancelAutoSkipFromUserInteraction(),
             child: MouseRegion(
-              onHover: (event) {
-                if (!event.synthesized && event.delta != Offset.zero) _showControlsFromPointerActivity();
+              onHover: (_) {
+                if (_showControls) _showControlsFromPointerActivity();
               },
               child: Stack(
                 children: [

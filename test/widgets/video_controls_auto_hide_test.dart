@@ -184,6 +184,33 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('hover cannot reveal hidden controls but a controller button can', (tester) async {
+      await pumpControls(tester);
+      chrome.hide(ignoreHolds: true);
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(300, 300));
+      await mouse.moveTo(const Offset(350, 300));
+      await tester.pump();
+      expect(chrome.controlsVisible, isFalse);
+      await press(tester, LogicalKeyboardKey.arrowDown);
+      expect(chrome.controlsVisible, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      chrome.cancelAutoHide();
+    });
+
+    testWidgets('explicit mouse click reveals hidden controls', (tester) async {
+      await pumpControls(tester, surface: _Surface.desktop);
+      chrome.hide(ignoreHolds: true);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(300, 300), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(chrome.controlsVisible, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      chrome.cancelAutoHide();
+    });
+
     testWidgets('pausing keeps the OSD up until the viewer dismisses it', (tester) async {
       await pumpControls(tester);
 

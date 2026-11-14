@@ -69,8 +69,6 @@ void main() {
     addTearDown(cancelFocusNode.dispose);
     addTearDown(confirmFocusNode.dispose);
 
-    chromeController.hide();
-
     await tester.pumpWidget(
       _wrapPrompt(
         VideoPlayerPlayNextOverlay(
@@ -86,7 +84,7 @@ void main() {
       ),
     );
 
-    expect(_promptPosition(tester).bottom, 24);
+    expect(_promptPosition(tester).bottom, 100);
 
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     addTearDown(mouse.removePointer);
@@ -130,10 +128,16 @@ void main() {
     await tester.pump();
     expect(chrome.controlsVisible, isFalse);
     expect(chrome.isHeld(PlayerChromeHold.promptInteraction), isFalse);
-    confirm.requestFocus();
+    await mouse.moveTo(tester.getCenter(find.text('Cancel')));
+    await tester.pump();
+    await mouse.moveBy(const Offset(2, 0));
     await tester.pump();
     expect(chrome.controlsVisible, isFalse);
     expect(chrome.isHeld(PlayerChromeHold.promptInteraction), isFalse);
+    confirm.requestFocus();
+    await tester.pump();
+    expect(chrome.controlsVisible, isTrue);
+    expect(chrome.isHeld(PlayerChromeHold.promptInteraction), isTrue);
   });
 
   testWidgets('focused play next prompt holds chrome visible', (tester) async {
@@ -202,7 +206,7 @@ void main() {
     expect(chromeController.isHeld(PlayerChromeHold.promptInteraction), isFalse);
     expect(notifications, 0);
     await tester.pump(const Duration(seconds: 3));
-    expect(chromeController.controlsVisible, isFalse);
+    expect(chromeController.controlsVisible, isTrue);
   });
 
   testWidgets('the buffering spinner announces loading until the first frame renders', (tester) async {
