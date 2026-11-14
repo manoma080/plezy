@@ -14,6 +14,8 @@ import 'package:plezy/media/media_source_info.dart';
 import 'package:plezy/mpv/mpv.dart';
 import 'package:plezy/providers/playback_state_provider.dart';
 import 'package:plezy/services/live_seek_accumulator.dart';
+import 'package:plezy/services/gamepad_service.dart';
+import 'package:universal_gamepad/universal_gamepad.dart';
 import 'package:plezy/services/settings_service.dart';
 import 'package:plezy/services/video_volume_controller.dart';
 import 'package:plezy/utils/platform_detector.dart';
@@ -73,6 +75,8 @@ void main() {
 
     tearDown(() async {
       TvDetectionService.debugSetAppleTVOverride(null);
+      TvDetectionService.debugSetQuestOverride(null);
+      GamepadService.debugResetQuestSeekDeduplication();
       PlatformDetector.debugSetIsDesktopOSOverride(null);
       volume.dispose();
       playbackState.dispose();
@@ -90,6 +94,7 @@ void main() {
       bool isLive = false,
       LiveSeekBy? onLiveSeekBy,
       String itemId = 'transient-feedback',
+      bool canControl = true,
     }) async {
       transportCommands = [];
       await tester.pumpWidget(
@@ -113,6 +118,7 @@ void main() {
                   chromeController: chrome,
                   initialChapters: chapters,
                   canNavigateMediaItems: false,
+                  canControl: canControl,
                   isLive: isLive,
                   onLiveSeekBy: onLiveSeekBy,
                   onPlayPauseRequested: wireTransportCallback
@@ -145,7 +151,18 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     }
 
+    testWidgets('horizontal mouse scroll on non-Quest Android does not seek', (tester) async {
+      await pumpControls(tester);
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(position: Offset(400, 300), scrollDelta: Offset(-20, 0)),
+      );
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks, isEmpty);
+      await settleFeedback(tester);
+    });
+
     testWidgets('horizontal Android scroll seeks by the configured small step', (tester) async {
+      TvDetectionService.debugSetQuestOverride(true);
       await pumpControls(tester);
       await tester.sendEventToBinding(
         const PointerScrollEvent(position: Offset(400, 300), scrollDelta: Offset(-20, 0)),
@@ -156,6 +173,7 @@ void main() {
     });
 
     testWidgets('horizontal scroll reverses and coalesces rapid repeats without vertical seeks', (tester) async {
+      TvDetectionService.debugSetQuestOverride(true);
       await pumpControls(tester);
       Future<void> scroll(Offset delta) =>
           tester.sendEventToBinding(PointerScrollEvent(position: const Offset(400, 300), scrollDelta: delta));
@@ -166,6 +184,49 @@ void main() {
       await scroll(const Offset(0, 20));
       await tester.pump(const Duration(milliseconds: 900));
       expect(player.seeks, [const Duration(minutes: 9, seconds: 50)]);
+      await settleFeedback(tester);
+    });
+
+    testWidgets('Quest scroll respects playback authority', (tester) async {
+      TvDetectionService.debugSetQuestOverride(true);
+      await pumpControls(tester, canControl: false);
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(position: Offset(400, 300), scrollDelta: Offset(-20, 0)),
+      );
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks, isEmpty);
+      await settleFeedback(tester);
+    });
+
+    testWidgets('Quest axis and scroll seek only once in either order', (tester) async {
+      TvDetectionService.debugSetQuestOverride(true);
+      await pumpControls(tester);
+      final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));
+      final owner = Object();
+      GamepadService.registerRightStickSeek(
+        owner,
+        isActive: () => true,
+        onSeek: (direction) {
+          if (GamepadService.acceptQuestSeek(direction, fromScroll: false)) {
+            player.seek(const Duration(minutes: 10, seconds: 10));
+          }
+        },
+      );
+      addTearDown(() => GamepadService.unregisterRightStickSeek(owner));
+      void axis(double value) => service.debugHandleGamepadEvent(
+        GamepadAxisEvent(gamepadId: 1, timestamp: 0, axis: GamepadAxis.rightStickX, value: value),
+      );
+      Future<void> scroll() =>
+          tester.sendEventToBinding(const PointerScrollEvent(position: Offset(400, 300), scrollDelta: Offset(-20, 0)));
+      axis(1);
+      await scroll();
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks.length, 1);
+      axis(0);
+      await scroll();
+      axis(1);
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(player.seeks.length, 2);
       await settleFeedback(tester);
     });
 

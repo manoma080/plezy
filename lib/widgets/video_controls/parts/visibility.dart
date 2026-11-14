@@ -98,6 +98,8 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
     if (event is! PointerScrollEvent) return;
     final dx = event.scrollDelta.dx;
     if (Theme.of(context).platform == TargetPlatform.android &&
+        TvDetectionService.isQuestSync() &&
+        widget.canControl &&
         dx != 0 &&
         event.scrollDelta.dy == 0 &&
         !_sheetIsOpen() &&
@@ -109,6 +111,12 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
       GestureBinding.instance.pointerSignalResolver.register(event, (_) {
         final direction = dx < 0 ? 1 : -1;
         if (_horizontalScrollSeekCooldown?.isActive == true && _horizontalScrollSeekDirection == direction) return;
+        if (!GamepadService.acceptQuestSeek(
+          direction > 0 ? TraversalDirection.right : TraversalDirection.left,
+          fromScroll: true,
+        )) {
+          return;
+        }
         _horizontalScrollSeekDirection = direction;
         _horizontalScrollSeekCooldown?.cancel();
         _horizontalScrollSeekCooldown = Timer(const Duration(milliseconds: 300), () {});
