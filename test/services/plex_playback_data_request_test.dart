@@ -168,6 +168,38 @@ void main() {
     expect(requests.single.url.queryParameters['allParts'], '1');
   });
 
+  test('part subtitle selection invalidates fresh metadata without deleting it', () async {
+    final requests = <http.Request>[];
+    final client = makeClient((request) async {
+      requests.add(request);
+      return http.Response('', 200);
+    });
+    addTearDown(client.close);
+    final cache = PlexApiCache.instance;
+    final serverId = ServerId(client.cacheServerId);
+    const endpoint = '/library/metadata/42';
+    await cache.put(serverId, endpoint, {'test': true});
+    await cache.pin(serverId, endpoint);
+
+    expect(await client.selectSubtitleForPart(99, 401, ratingKey: '42'), isTrue);
+    expect(requests.single.url.queryParameters['allParts'], '0');
+    expect(requests.single.url.queryParameters['subtitleStreamID'], '401');
+    expect(await cache.getIfFresh(serverId, endpoint, maxAge: const Duration(minutes: 1)), isNull);
+    expect(await cache.get(serverId, endpoint), {'test': true});
+  });
+
+  test('failed part subtitle selection keeps the metadata fresh', () async {
+    final client = makeClient((request) async => http.Response('', 500));
+    addTearDown(client.close);
+    final cache = PlexApiCache.instance;
+    final serverId = ServerId(client.cacheServerId);
+    const endpoint = '/library/metadata/42';
+    await cache.put(serverId, endpoint, {'test': true});
+
+    expect(await client.selectSubtitleForPart(99, 401, ratingKey: '42'), isFalse);
+    expect(await cache.getIfFresh(serverId, endpoint, maxAge: const Duration(minutes: 1)), {'test': true});
+  });
+
   test('semantic carried audio is sent to the Plex transcode decision', () async {
     final initialized = await initializeTranscodeAudio(
       preferredAudioTrack: const AudioTrack(id: 'source:999', language: 'jpn', title: 'Main', codec: 'flac'),

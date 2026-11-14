@@ -250,9 +250,11 @@ SubtitlePreference? subtitlePreferenceForItemChange({
   required SubtitleTrack? nativeTrack,
   SubtitlePreference? declinedPreference,
   SubtitlePreference? sessionPreference,
+  bool automaticOverrideEnabled = false,
 }) {
   final sessionIntent = SubtitlePreference.demoteToIntent(sessionPreference);
   if (sessionIntent != null) return sessionIntent;
+  if (automaticOverrideEnabled) return null;
   SubtitlePreference? normalize(SubtitleTrack? track, {required bool preserveOff}) {
     if (track == null) return null;
     if (track.id == SubtitleTrack.off.id) return preserveOff ? const SubtitlePreference.off() : null;
@@ -454,10 +456,10 @@ _PlaybackOpenTiming _playbackOpenTiming({
 /// the show-wide audio/subtitle language default (#1393): an in-player track
 /// change should not silently rewrite the whole series' Plex prefs. The
 /// explicit path for that lives in the metadata-edit UI.
-TrackPreferencePersister _plexTrackPersister(PlexClient client) {
+TrackPreferencePersister _plexTrackPersister(PlexClient client, String ratingKey) {
   return ({required int partId, required String trackType, required int streamID}) => trackType == 'audio'
       ? client.selectStreams(partId, audioStreamID: streamID)
-      : client.selectStreams(partId, subtitleStreamID: streamID);
+      : client.selectStreams(partId, subtitleStreamID: streamID, ratingKey: ratingKey);
 }
 
 /// Builds a [TrackSelectionMemoryEnabler] for the MediaBrowser account
@@ -1455,6 +1457,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     _selectedAudioStreamId = widget.selectedAudioStreamId;
     _preferredAudioTrack = widget.preferredAudioTrack;
     _preferredSubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSubtitleTrack);
+    _sessionSubtitlePreference = _preferredSubtitleTrack;
     _preferredSecondarySubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSecondarySubtitleTrack);
     _selectedQualityPreset = widget.selectedQualityPreset ?? TranscodeQualityPreset.original;
     _qualityPresetExplicit = widget.selectedQualityPreset != null;
@@ -1780,6 +1783,20 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
               cellularDefault: settingsService.read(SettingsService.cellularQualityPreset),
               generalDefault: settingsService.read(SettingsService.defaultQualityPreset),
             );
+        final accountPreferences = context.read<AccountPreferencesController>();
+        final accountScopeCurrent = accountPreferences.captureActiveScope();
+        final subtitlePreferenceSession = genericClient is PlexClient ? genericClient.authenticationSessionId : null;
+        if (settingsService.read(SettingsService.subtitlePreferenceOverride) != SubtitlePreferenceOverride.off &&
+            _preferredSubtitleTrack == null) {
+          await accountPreferences.ensureActiveLoaded();
+          if (!mounted ||
+              !_isPlayerInitializationCurrent(generation) ||
+              !accountScopeCurrent() ||
+              (genericClient is PlexClient &&
+                  !identical(subtitlePreferenceSession, genericClient.authenticationSessionId))) {
+            return;
+          }
+        }
         final playbackResolver = PlaybackSourceResolver(
           serverManager: context.read<MultiServerProvider>().serverManager,
           database: context.read<AppDatabase>(),
@@ -1794,6 +1811,9 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
             selectedAudioStreamId: _selectedAudioStreamId,
             preferredAudioTrack: _preferredAudioTrack,
             preferredSubtitleTrack: _preferredSubtitleTrack,
+            subtitleOverride: settingsService.read(SettingsService.subtitlePreferenceOverride),
+            subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
+            subtitlePreferenceSession: subtitlePreferenceSession,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             // The same resume the open will land on (see

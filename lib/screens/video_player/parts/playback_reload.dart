@@ -195,6 +195,7 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         }
         final saved = await streamSelectClient.selectStreams(
           partId,
+          ratingKey: _currentMetadata.id,
           audioStreamID: isAudioChange ? effectiveAudioStreamId : null,
           // Plex's wire API uses 0 for Off. Keep that convention at this
           // backend boundary so it cannot collide with Jellyfin source ids.
@@ -451,7 +452,14 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
       final currentSubtitleTrack =
           preferredSubtitleTrackOverride ??
           (preserveCurrentTrackSelection
-              ? preservedSubtitleTrack ?? SubtitlePreference.trackOrNull(currentPlayer.state.track.subtitle)
+              ? preservedSubtitleTrack ??
+                    (isItemChange &&
+                            metadata.backend == MediaBackend.plex &&
+                            (SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
+                                    SubtitlePreferenceOverride.off) !=
+                                SubtitlePreferenceOverride.off
+                        ? null
+                        : SubtitlePreference.trackOrNull(currentPlayer.state.track.subtitle))
               : null);
       final currentSecondarySubtitleTrack = preserveCurrentTrackSelection
           ? preservedSecondarySubtitleTrack ??
@@ -578,9 +586,30 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         );
         if (!isCurrentReload()) return MediaReloadOutcome.superseded;
 
+        final overrideSetting =
+            SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
+            SubtitlePreferenceOverride.off;
+        final accountScopeCurrent = accountPreferences.captureActiveScope();
+        final subtitleServerId = serverIdOrNull(metadata.serverId);
+        final subtitleClient = subtitleServerId == null ? null : serverManager.getClient(subtitleServerId);
+        final subtitlePreferenceSession = subtitleClient is PlexClient ? subtitleClient.authenticationSessionId : null;
+        if (isItemChange && initializationSubtitleTrack == null && overrideSetting != SubtitlePreferenceOverride.off) {
+          await accountPreferences.ensureActiveLoaded();
+          if (!isCurrentReload() ||
+              !accountScopeCurrent() ||
+              (subtitleClient is PlexClient &&
+                  !identical(subtitlePreferenceSession, subtitleClient.authenticationSessionId))) {
+            return MediaReloadOutcome.superseded;
+          }
+        }
         final playbackResolver = PlaybackSourceResolver(serverManager: serverManager, database: database);
         await stoppedProgressFuture;
-        if (!isCurrentReload()) return MediaReloadOutcome.superseded;
+        if (!isCurrentReload() ||
+            !accountScopeCurrent() ||
+            (subtitleClient is PlexClient &&
+                !identical(subtitlePreferenceSession, subtitleClient.authenticationSessionId))) {
+          return MediaReloadOutcome.superseded;
+        }
         final playbackContext = await playbackResolver.resolve(
           PlaybackInitializationOptions(
             metadata: metadata,
@@ -591,6 +620,9 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
             selectedAudioStreamId: targetAudioStreamId,
             preferredAudioTrack: initializationAudioTrack,
             preferredSubtitleTrack: initializationSubtitleTrack,
+            subtitleOverride: isItemChange ? overrideSetting : SubtitlePreferenceOverride.off,
+            subtitleOverrideLanguage: accountPreferences.activePreferences?.preferredSubtitleLanguage,
+            subtitlePreferenceSession: subtitlePreferenceSession,
             sessionIdentifier: _playbackSessionIdentifier,
             transcodeSessionId: _playbackTranscodeSessionId,
             startPosition: openResumePosition,

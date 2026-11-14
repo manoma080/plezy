@@ -1246,6 +1246,9 @@ class _PlexStreamSelectClient with PlaybackReportRecorder implements PlexClient 
   final selectStreamsCalls = <({int partId, int? audioStreamID, int? subtitleStreamID})>[];
 
   @override
+  final Object authenticationSessionId = Object();
+
+  @override
   ServerId get serverId => ServerId('srv-1');
   @override
   String get serverName => 'Server';
@@ -1265,7 +1268,7 @@ class _PlexStreamSelectClient with PlaybackReportRecorder implements PlexClient 
   Map<String, String> get streamHeaders => const {};
 
   @override
-  Future<bool> selectStreams(int partId, {int? audioStreamID, int? subtitleStreamID}) async {
+  Future<bool> selectStreams(int partId, {int? audioStreamID, int? subtitleStreamID, String? ratingKey}) async {
     selectStreamsCalls.add((partId: partId, audioStreamID: audioStreamID, subtitleStreamID: subtitleStreamID));
     return true;
   }

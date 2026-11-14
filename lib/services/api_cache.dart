@@ -152,6 +152,14 @@ abstract class ApiCache {
         );
   }
 
+  /// Mark a cached response stale without removing offline/pinned metadata.
+  Future<void> invalidateFreshness(ServerId serverId, String endpoint) async {
+    final key = _buildKey(serverId, endpoint);
+    await (_db.update(_db.apiCache)..where((t) => t.cacheKey.equals(key))).write(
+      ApiCacheCompanion(cachedAt: Value(DateTime.fromMillisecondsSinceEpoch(0))),
+    );
+  }
+
   Future<void> deleteForServer(ServerId serverId) async {
     await (_db.delete(_db.apiCache)..where((t) => t.cacheKey.like('$serverId:%'))).go();
   }

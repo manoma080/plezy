@@ -58,6 +58,7 @@ import '../services/download_storage_service.dart';
 import '../utils/download_version_utils.dart';
 import '../utils/download_utils.dart';
 import '../services/settings_service.dart';
+import '../services/subtitle_override_application.dart';
 import '../services/watch_actions.dart';
 import '../widgets/settings_builder.dart';
 import '../utils/layout_constants.dart';
@@ -1679,6 +1680,62 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
     }
   }
 
+  bool _openingSubtitlePreferenceStarted = false;
+
+  Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item, Object subtitleSession) async {
+    if (!identical(subtitleSession, client.authenticationSessionId)) return;
+    if (_openingSubtitlePreferenceStarted) return;
+    _openingSubtitlePreferenceStarted = true;
+    final subtitleGeneration = client.beginSubtitleIntent(item.id, supersede: false);
+    final confirmSelectedSubtitle = client.hasPendingSubtitleWrites;
+    final route = ModalRoute.of(context);
+    final account = context.read<AccountPreferencesController?>();
+    final accountScopeCurrent = account?.captureActiveScope();
+    bool current() =>
+        _canUseDetail &&
+        route?.isCurrent != false &&
+        identical(subtitleSession, client.authenticationSessionId) &&
+        (accountScopeCurrent?.call() ?? true);
+    try {
+      final settings = await SettingsService.getInstance();
+      final preference = settings.read(SettingsService.subtitlePreferenceOverride);
+      if (preference == SubtitlePreferenceOverride.off || !current() || account == null) return;
+      client.activateSubtitleIntent(item.id, subtitleGeneration);
+      await account.ensureActiveLoaded();
+      if (!current()) return;
+      final language = account.activePreferences?.preferredSubtitleLanguage;
+      if (language == null) return;
+      final selection = await resolveSavedMediaVersionFor(item);
+      if (!current()) return;
+      if (confirmSelectedSubtitle) await client.waitForPendingSubtitleWrites();
+      if (!current()) return;
+      final data = await client.getVideoPlaybackData(
+        item.id,
+        mediaIndex: selection?.index ?? 0,
+        selectedMediaSourceId: selection?.sourceId,
+        preferredVersionSignature: selection?.signature,
+        position: Duration(milliseconds: item.viewOffsetMs ?? 0),
+        forceRefresh: true,
+      );
+      final source = data.mediaInfo;
+      if (source == null || !current()) return;
+      final updated = await applySubtitleOverride(
+        source,
+        preference: preference,
+        language: language,
+        confirmSelected: confirmSelectedSubtitle,
+        save: (part, stream) => !current()
+            ? Future.value(false)
+            : client.selectSubtitleForPart(part, stream, ratingKey: item.id, generation: subtitleGeneration),
+      );
+      if (!identical(source, updated) && current()) {
+        _invalidatePlaybackProbes(refreshItems: true);
+      }
+    } catch (e, stackTrace) {
+      appLogger.d('Detail subtitle preference failed', error: e, stackTrace: stackTrace);
+    }
+  }
+
   Future<void> _loadFullMetadata() async {
     if (!_canUseDetail) return;
     _invalidatePlaybackProbes(refreshItems: true);
@@ -1734,6 +1791,7 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
         return;
       }
 
+      final detailSession = client is PlexClient ? client.authenticationSessionId : null;
       // Normalises a freshly fetched item against the row we navigated from
       // (which owns serverId/library) and paints it. Called once from
       // [onItemReady] on backends that learn the item before on-deck, and once
@@ -1780,13 +1838,18 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
       final result = await client.fetchItemWithOnDeck(
         _metadata.id,
         onItemReady: (item) {
-          if (_canUseDetail) publish(item);
+          if (_canUseDetail && (client is! PlexClient || identical(detailSession, client.authenticationSessionId))) {
+            publish(item);
+          }
         },
       );
       final metadata = result.item;
 
-      if (!_canUseDetail) return;
+      if (!_canUseDetail || (client is PlexClient && !identical(detailSession, client.authenticationSessionId))) return;
       final base = publish(metadata ?? _metadata, onDeckEpisode: result.onDeckEpisode, onDeckSettled: true);
+      if (client is PlexClient && (base.isMovie || base.isEpisode)) {
+        unawaited(_applyOpenedItemSubtitlePreference(client, base, detailSession!));
+      }
 
       if (base.isShow) {
         unawaited(_loadSeasons());

@@ -153,6 +153,9 @@ enum SubAssOverride { no, yes, scale, force, strip }
 /// [quarter] trade sharpness for raster throughput on render-bound low-end TVs.
 enum SubtitleRenderResolution { screen, video, threeQuarter, half, third, quarter }
 
+/// Opt-in subtitle type preference; off leaves the server's choice untouched.
+enum SubtitlePreferenceOverride { off, standard, cc, forced, signs }
+
 /// Who reduces HDR content to what the display can actually show, on the Linux
 /// native video plane.
 ///
@@ -659,6 +662,11 @@ class SettingsService extends BaseSharedPreferencesService {
   static const audioSyncOffset = IntPref('audio_sync_offset');
   static const subtitleSyncOffset = IntPref('subtitle_sync_offset');
   static const subtitleSearchLanguage = NullableStringPref('subtitle_search_language');
+  static const subtitlePreferenceOverride = EnumPref<SubtitlePreferenceOverride>(
+    'subtitle_preference_override',
+    values: SubtitlePreferenceOverride.values,
+    defaultValue: SubtitlePreferenceOverride.off,
+  );
   static const volume = DoublePref('volume', defaultValue: 100.0);
   static const rotationLocked = BoolPref('rotation_locked', defaultValue: true);
   static const subtitleFontSize = IntPref('subtitle_font_size', defaultValue: 38);
@@ -1483,6 +1491,7 @@ class SettingsService extends BaseSharedPreferencesService {
     audioSyncOffset,
     subtitleSyncOffset,
     subtitleSearchLanguage,
+    subtitlePreferenceOverride,
     volume,
     subtitleFontSize,
     subtitleTextColor,
