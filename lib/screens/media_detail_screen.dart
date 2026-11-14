@@ -1685,6 +1685,8 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
   Future<void> _applyOpenedItemSubtitlePreference(PlexClient client, MediaItem item) async {
     if (_openingSubtitlePreferenceStarted) return;
     _openingSubtitlePreferenceStarted = true;
+    final subtitleGeneration = client.beginSubtitleIntent();
+    final confirmSelectedSubtitle = client.hasPendingSubtitleWrites;
     final route = ModalRoute.of(context);
     final account = context.read<AccountPreferencesController?>();
     bool current() => _canUseDetail && route?.isCurrent != false;
@@ -1712,8 +1714,10 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
         source,
         preference: preference,
         language: language,
-        save: (part, stream) =>
-            !current() ? Future.value(false) : client.selectSubtitleForPart(part, stream, ratingKey: item.id),
+        confirmSelected: confirmSelectedSubtitle,
+        save: (part, stream) => !current()
+            ? Future.value(false)
+            : client.selectSubtitleForPart(part, stream, ratingKey: item.id, generation: subtitleGeneration),
       );
       if (!identical(source, updated) && _canUseDetail) {
         _invalidatePlaybackProbes(refreshItems: true);

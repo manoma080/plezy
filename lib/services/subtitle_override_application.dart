@@ -9,6 +9,7 @@ Future<MediaSourceInfo> applySubtitleOverride(
   required SubtitlePreferenceOverride preference,
   required String? language,
   required Future<bool> Function(int partId, int streamId) save,
+  bool confirmSelected = false,
 }) async {
   final kind = switch (preference) {
     SubtitlePreferenceOverride.off => null,
@@ -19,7 +20,7 @@ Future<MediaSourceInfo> applySubtitleOverride(
   };
   if (kind == null || language == null || source.partId == null) return source;
   final match = selectPreferredSubtitle(source.subtitleTracks, languageCode: language, kind: kind);
-  if (match == null || match.selected) return source;
+  if (match == null || (match.selected && !confirmSelected)) return source;
   try {
     if (!await save(source.partId!, match.id)) return source;
   } catch (_) {

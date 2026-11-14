@@ -250,9 +250,11 @@ SubtitlePreference? subtitlePreferenceForItemChange({
   required SubtitleTrack? nativeTrack,
   SubtitlePreference? declinedPreference,
   SubtitlePreference? sessionPreference,
+  bool automaticOverrideEnabled = false,
 }) {
   final sessionIntent = SubtitlePreference.demoteToIntent(sessionPreference);
   if (sessionIntent != null) return sessionIntent;
+  if (automaticOverrideEnabled) return null;
   SubtitlePreference? normalize(SubtitleTrack? track, {required bool preserveOff}) {
     if (track == null) return null;
     if (track.id == SubtitleTrack.off.id) return preserveOff ? const SubtitlePreference.off() : null;
@@ -1455,6 +1457,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     _selectedAudioStreamId = widget.selectedAudioStreamId;
     _preferredAudioTrack = widget.preferredAudioTrack;
     _preferredSubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSubtitleTrack);
+    _sessionSubtitlePreference = _preferredSubtitleTrack;
     _preferredSecondarySubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSecondarySubtitleTrack);
     _selectedQualityPreset = widget.selectedQualityPreset ?? TranscodeQualityPreset.original;
     _qualityPresetExplicit = widget.selectedQualityPreset != null;

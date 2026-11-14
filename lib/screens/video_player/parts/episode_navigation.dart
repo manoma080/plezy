@@ -176,6 +176,9 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
               nativeTrack: currentPlayer.state.track.subtitle,
               declinedPreference: committedSubtitleSelection?.declinedPreference,
               sessionPreference: _sessionSubtitlePreference,
+              automaticOverrideEnabled:
+                  episodeMetadata.backend == MediaBackend.plex &&
+                  settingsService.read(SettingsService.subtitlePreferenceOverride) != SubtitlePreferenceOverride.off,
             );
       final secondarySubtitlePreference = followServerSelections
           ? null

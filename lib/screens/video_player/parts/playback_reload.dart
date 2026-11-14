@@ -451,7 +451,14 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
       final currentSubtitleTrack =
           preferredSubtitleTrackOverride ??
           (preserveCurrentTrackSelection
-              ? preservedSubtitleTrack ?? SubtitlePreference.trackOrNull(currentPlayer.state.track.subtitle)
+              ? preservedSubtitleTrack ??
+                    (isItemChange &&
+                            metadata.backend == MediaBackend.plex &&
+                            (SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
+                                    SubtitlePreferenceOverride.off) !=
+                                SubtitlePreferenceOverride.off
+                        ? null
+                        : SubtitlePreference.trackOrNull(currentPlayer.state.track.subtitle))
               : null);
       final currentSecondarySubtitleTrack = preserveCurrentTrackSelection
           ? preservedSecondarySubtitleTrack ??

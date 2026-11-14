@@ -1447,6 +1447,33 @@ class PlexClient
     );
   }
 
+  // Subtitle PUTs can finish out of order, including across client instances.
+  // Serialize per server because allParts=1 may also affect sibling parts.
+  static final Map<String, Future<void>> _subtitleWrites = {};
+  static final Map<String, int> _subtitleGenerations = {};
+
+  bool get hasPendingSubtitleWrites => _subtitleWrites.containsKey(cacheServerId);
+
+  int beginSubtitleIntent() => _subtitleGenerations.update(cacheServerId, (n) => n + 1, ifAbsent: () => 1);
+
+  Future<bool> _serializeSubtitleWrite(Future<bool> Function() write, {int? generation}) async {
+    final key = cacheServerId;
+    final previous = _subtitleWrites[key];
+    final done = Completer<void>();
+    _subtitleWrites[key] = done.future;
+    try {
+      if (previous != null) await previous;
+      if (generation != null && _subtitleGenerations[key] != generation) return false;
+      final saved = await write();
+      return saved && (generation == null || _subtitleGenerations[key] == generation);
+    } finally {
+      done.complete();
+      if (identical(_subtitleWrites[key], done.future)) {
+        unawaited(_subtitleWrites.remove(key));
+      }
+    }
+  }
+
   /// Select specific audio and subtitle streams for playback
   /// This updates which streams are "selected" in the media metadata
   /// Uses the part ID from media info for accurate stream selection
@@ -1464,19 +1491,25 @@ class PlexClient
     }
     queryParams['allParts'] = 1;
     // Use PUT request on /library/parts/{partId}
-    return _wrapBoolApiCall(
+    Future<bool> write() => _wrapBoolApiCall(
       () => _http.put('/library/parts/$partId', queryParameters: queryParams),
       'Failed to select streams',
     );
+    if (subtitleStreamID == null) return write();
+    beginSubtitleIntent();
+    return _serializeSubtitleWrite(write);
   }
 
   /// Persist a subtitle choice for one part, without affecting other parts.
-  Future<bool> selectSubtitleForPart(int partId, int streamId, {required String ratingKey}) async {
+  Future<bool> selectSubtitleForPart(int partId, int streamId, {required String ratingKey, int? generation}) async {
     final bool saved;
     try {
-      saved = await _wrapBoolApiCall(
-        () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
-        'Failed to select subtitle',
+      saved = await _serializeSubtitleWrite(
+        () => _wrapBoolApiCall(
+          () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
+          'Failed to select subtitle',
+        ),
+        generation: generation,
       );
     } catch (_) {
       return false;
@@ -2891,9 +2924,15 @@ class PlexClient
     MediaSubtitleTrack? selectedSubtitleTrack,
     int? partId,
     bool withholdDirectPlay = false,
+    int? subtitleGeneration,
   }) async {
     try {
-      await selectSubtitleStreamForBurn(partId: partId, track: selectedSubtitleTrack, ratingKey: ratingKey);
+      await selectSubtitleStreamForBurn(
+        partId: partId,
+        track: selectedSubtitleTrack,
+        ratingKey: ratingKey,
+        generation: subtitleGeneration,
+      );
       Map<String, String> paramsFor({required bool useTsFallbackTarget}) => _buildTranscodeParams(
         ratingKey: ratingKey,
         mediaIndex: mediaIndex,
@@ -2962,6 +3001,7 @@ class PlexClient
     required int? partId,
     required MediaSubtitleTrack? track,
     String? ratingKey,
+    int? generation,
   }) async {
     final burnTarget = _selectedInternalSubtitleForHls(track);
     if (burnTarget == null) return;
@@ -2970,7 +3010,7 @@ class PlexClient
     }
     if (!(ratingKey == null
         ? await selectStreams(partId, subtitleStreamID: burnTarget.id)
-        : await selectSubtitleForPart(partId, burnTarget.id, ratingKey: ratingKey))) {
+        : await selectSubtitleForPart(partId, burnTarget.id, ratingKey: ratingKey, generation: generation))) {
       throw StateError('Server refused to select subtitle stream ${burnTarget.id} on part $partId for burn-in');
     }
   }
@@ -3757,6 +3797,8 @@ class PlexClient
   /// independently selectable through the returned sidecar catalog.
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
+    final subtitleGeneration = beginSubtitleIntent();
+    final confirmSelectedSubtitle = hasPendingSubtitleWrites;
     try {
       var data = await getVideoPlaybackData(
         options.metadata.id,
@@ -3780,7 +3822,9 @@ class PlexClient
           data.mediaInfo!,
           preference: options.subtitleOverride,
           language: options.subtitleOverrideLanguage,
-          save: (part, stream) => selectSubtitleForPart(part, stream, ratingKey: options.metadata.id),
+          confirmSelected: confirmSelectedSubtitle,
+          save: (part, stream) =>
+              selectSubtitleForPart(part, stream, ratingKey: options.metadata.id, generation: subtitleGeneration),
         );
         if (!identical(info, data.mediaInfo)) {
           data = PlexVideoPlaybackData(
@@ -3847,6 +3891,7 @@ class PlexClient
           audioStreamId: resolvedAudioId,
           selectedSubtitleTrack: requestedSubtitleTrack,
           partId: data.mediaInfo?.partId,
+          subtitleGeneration: subtitleGeneration,
           withholdDirectPlay: sourceCodecRefused || options.forceTranscode,
         );
 
