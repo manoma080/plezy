@@ -105,14 +105,16 @@ class KeyEventSimulatorController {
 
   /// Releases [logicalKeys] together after previously scheduled key downs.
   ///
-  /// Any remaining held state is cleared after the release burst.
-  void releaseKeys(Iterable<LogicalKeyboardKey> logicalKeys) {
+  /// Any remaining held state is cleared after the release burst. Flutter has
+  /// no key-cancel event; [cancelled] marks the key-up as synthesized so
+  /// cancellation-aware consumers can clear state without activating.
+  void releaseKeys(Iterable<LogicalKeyboardKey> logicalKeys, {bool cancelled = false}) {
     if (_disposed) return;
     final keys = logicalKeys.toList(growable: false);
     scheduleFrameIfIdle();
     _afterFocusSettles(() {
       for (final logicalKey in keys) {
-        _dispatchKeyUp(logicalKey);
+        _dispatchKeyUp(logicalKey, cancelled: cancelled);
       }
       _heldFocusNodes.clear();
     }, targetsPrimaryFocus: () => !keys.every(_heldFocusNodes.containsKey));
@@ -189,10 +191,10 @@ class KeyEventSimulatorController {
     });
   }
 
-  void _dispatchKeyUp(LogicalKeyboardKey logicalKey) {
+  void _dispatchKeyUp(LogicalKeyboardKey logicalKey, {bool cancelled = false}) {
     final heldFocusNode = _heldFocusNodes.remove(logicalKey);
     final focusNode = heldFocusNode ?? FocusManager.instance.primaryFocus;
-    final event = _keyUpEvent(logicalKey, _physicalKeyFor(logicalKey));
+    final event = _keyUpEvent(logicalKey, _physicalKeyFor(logicalKey), synthesized: cancelled);
     if (focusNode == null || (heldFocusNode != null && heldFocusNode.context == null)) {
       if (heldFocusNode != null && TextInputDiagnostics.enabled) {
         _log('simulateKeyUp dropped detached held focus logical=${logicalKey.keyLabel}/${logicalKey.keyId}');
@@ -214,8 +216,9 @@ class KeyEventSimulatorController {
     );
   }
 
-  KeyUpEvent _keyUpEvent(LogicalKeyboardKey logicalKey, PhysicalKeyboardKey physicalKey) {
+  KeyUpEvent _keyUpEvent(LogicalKeyboardKey logicalKey, PhysicalKeyboardKey physicalKey, {bool synthesized = false}) {
     return KeyUpEvent(
+      synthesized: synthesized,
       physicalKey: physicalKey,
       logicalKey: logicalKey,
       timeStamp: Duration(milliseconds: DateTime.now().millisecondsSinceEpoch),

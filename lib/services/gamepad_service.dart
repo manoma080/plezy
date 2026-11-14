@@ -333,9 +333,13 @@ class GamepadService with WindowListener {
 
     // Release all face buttons in one frame so held widget state cannot stick.
     _simulator.releaseKeys([
-      if (_pressedButtons.contains(GamepadButton.a)) LogicalKeyboardKey.enter,
-      if (_pressedButtons.contains(GamepadButton.x)) LogicalKeyboardKey.gameButtonX,
-    ]);
+      if (_pressedButtons.contains(GamepadButton.a) && !_suppressedButtons.contains(GamepadButton.a))
+        LogicalKeyboardKey.enter,
+      if (_pressedButtons.contains(GamepadButton.x) && !_suppressedButtons.contains(GamepadButton.x))
+        LogicalKeyboardKey.gameButtonX,
+      if (_pressedButtons.contains(GamepadButton.b) && !_suppressedButtons.contains(GamepadButton.b))
+        LogicalKeyboardKey.gameButtonB,
+    ], cancelled: true);
     _pressedButtons.clear();
     _suppressedButtons.clear();
     _duplicateInputGuard.clear();

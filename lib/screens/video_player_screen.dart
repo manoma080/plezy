@@ -1351,7 +1351,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     super.initState();
     GamepadService.registerRightStickSeek(
       this,
-      isActive: () => mounted && !_shuttingDown && (ModalRoute.of(context)?.isCurrent ?? true),
+      isActive: () =>
+          mounted &&
+          !_shuttingDown &&
+          (ModalRoute.of(context)?.isCurrent ?? true) &&
+          !(OverlaySheetController.maybeOf(_sheetContext)?.isOpen ?? false),
       onSeek: (direction) {
         if (!_canControlPlayback()) return;
         final large = direction == TraversalDirection.up || direction == TraversalDirection.down;

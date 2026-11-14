@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:os_media_controls/os_media_controls.dart';
@@ -6,6 +8,7 @@ import 'package:plezy/providers/playback_state_provider.dart';
 import 'package:plezy/screens/video_player_screen.dart';
 import 'package:plezy/services/settings_service.dart';
 import 'package:plezy/services/gamepad_service.dart';
+import 'package:plezy/widgets/overlay_sheet.dart';
 import 'package:universal_gamepad/universal_gamepad.dart';
 import 'package:provider/provider.dart';
 
@@ -76,6 +79,31 @@ void main() {
 
         expect(player.seekTargets, [const Duration(minutes: 1, seconds: 20)]);
 
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  });
+
+  testWidgets('right stick does not seek behind an open player sheet', (tester) async {
+    final player = _SeekRecordingPlayer(position: const Duration(minutes: 2));
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      testBody: () async {
+        final key = GlobalKey<VideoPlayerScreenState>();
+        await tester.pumpWidget(_screen(key));
+        key.currentState!.player = player;
+        final host = find.byType(OverlaySheetHost);
+        final descendant = find.descendant(of: host, matching: find.byType(Builder)).first;
+        final controller = OverlaySheetController.of(tester.element(descendant));
+        unawaited(controller.show<void>(builder: (_) => const Text('open sheet')));
+        await tester.pump();
+        final service = GamepadService.forTesting();
+        service.debugHandleGamepadEvent(
+          GamepadAxisEvent(gamepadId: 1, timestamp: 0, axis: GamepadAxis.rightStickX, value: 1),
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(player.seekTargets, isEmpty);
         await tester.pumpWidget(const SizedBox.shrink());
       },
     );

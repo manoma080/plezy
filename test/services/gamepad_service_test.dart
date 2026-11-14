@@ -2,9 +2,37 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plezy/services/gamepad_service.dart';
+import 'package:plezy/focus/dpad_select_long_press_controller.dart';
 import 'package:universal_gamepad/universal_gamepad.dart';
 
 void main() {
+  testWidgets('disconnecting while A is held does not activate on release', (tester) async {
+    var activations = 0;
+    final select = DpadSelectLongPressController();
+    addTearDown(select.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Focus(
+          autofocus: true,
+          onKeyEvent: (_, event) => select.handleKeyEvent(
+            event,
+            isOwnerActive: () => true,
+            onShortPress: () => activations++,
+            onLongPress: () => activations++,
+          ),
+          child: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pump();
+    final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));
+    service.debugHandleGamepadEvent(_button(GamepadButton.a, pressed: true));
+    await tester.pump();
+    service.debugHandleGamepadEvent(_disconnect());
+    await tester.pump();
+    expect(activations, 0, reason: 'disconnect is cancellation, not a button activation');
+  });
+
   testWidgets('gamepad disconnect stops held-direction repeat and releases held keys', (tester) async {
     final events = await _pumpKeyEventRecorder(tester);
     final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));

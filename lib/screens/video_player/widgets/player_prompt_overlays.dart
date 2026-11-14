@@ -740,7 +740,7 @@ class _VideoPlayerPromptInteractionHoldState extends State<_VideoPlayerPromptInt
   @override
   void dispose() {
     _removeFocusListeners(widget.focusNodes);
-    widget.chromeController.release(PlayerChromeHold.promptInteraction, notify: false, restartAutoHide: false);
+    widget.chromeController.release(PlayerChromeHold.promptInteraction, notify: false);
     super.dispose();
   }
 
@@ -766,12 +766,13 @@ class _VideoPlayerPromptInteractionHoldState extends State<_VideoPlayerPromptInt
   void _setHovered(bool hovered) {
     if (_hovered == hovered) return;
     _hovered = hovered;
+    if (hovered && !widget.chromeController.controlsVisible) return;
     if (hovered) widget.chromeController.recordPointerActivity();
     _syncHold();
   }
 
   void _syncHold() {
-    if (_hovered || _focused) {
+    if ((_hovered || _focused) && widget.chromeController.controlsVisible) {
       widget.chromeController.hold(PlayerChromeHold.promptInteraction);
     } else {
       widget.chromeController.release(PlayerChromeHold.promptInteraction);
@@ -782,7 +783,11 @@ class _VideoPlayerPromptInteractionHoldState extends State<_VideoPlayerPromptInt
   Widget build(BuildContext context) {
     return MouseRegion(
       onEnter: (_) => _setHovered(true),
-      onHover: (_) => widget.chromeController.recordPointerActivity(),
+      onHover: (event) {
+        if (event.synthesized || event.delta == Offset.zero) return;
+        widget.chromeController.recordPointerActivity();
+        _syncHold();
+      },
       onExit: (_) => _setHovered(false),
       child: widget.child,
     );
