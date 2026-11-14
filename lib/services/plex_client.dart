@@ -1550,6 +1550,7 @@ class PlexClient
         _subtitleItemIntents[itemKey] = sequence;
       }
     }
+
     invalidate();
     return _serializeSubtitleWrite(() async {
       try {
@@ -3866,16 +3867,20 @@ class PlexClient
   /// independently selectable through the returned sidecar catalog.
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
+    final eligibleForSubtitleOverride =
+        options.metadata.kind == MediaKind.movie || options.metadata.kind == MediaKind.episode;
     final subtitleGeneration = beginSubtitleIntent(
       options.metadata.id,
       supersede:
+          eligibleForSubtitleOverride &&
           options.subtitleOverride != SubtitlePreferenceOverride.off &&
-          options.preferredSubtitleTrack == null &&
-          options.metadata.kind != MediaKind.track,
+          options.preferredSubtitleTrack == null,
     );
     final confirmSelectedSubtitle = hasPendingSubtitleWrites;
     try {
-      if (confirmSelectedSubtitle && options.subtitleOverride != SubtitlePreferenceOverride.off) {
+      if (eligibleForSubtitleOverride &&
+          confirmSelectedSubtitle &&
+          options.subtitleOverride != SubtitlePreferenceOverride.off) {
         await waitForPendingSubtitleWrites();
       }
       var data = await getVideoPlaybackData(
@@ -3885,6 +3890,7 @@ class PlexClient
         preferredVersionSignature: options.preferredVersionSignature,
         position: options.startPosition,
         forceRefresh:
+            eligibleForSubtitleOverride &&
             options.subtitleOverride != SubtitlePreferenceOverride.off &&
             options.subtitleOverrideLanguage != null &&
             options.preferredSubtitleTrack == null,
@@ -3893,9 +3899,7 @@ class PlexClient
       if (!data.hasValidVideoUrl) {
         throw PlaybackException(t.messages.fileInfoNotAvailable, reason: PlaybackFailureReason.noPlayableSource);
       }
-      if (options.metadata.kind != MediaKind.track &&
-          options.preferredSubtitleTrack == null &&
-          data.mediaInfo != null) {
+      if (eligibleForSubtitleOverride && options.preferredSubtitleTrack == null && data.mediaInfo != null) {
         final info = await applySubtitleOverride(
           data.mediaInfo!,
           preference: options.subtitleOverride,

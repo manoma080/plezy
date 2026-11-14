@@ -589,7 +589,6 @@ extension _VideoPlayerReloadMethods on VideoPlayerScreenState {
         final overrideSetting =
             SettingsService.instanceOrNull?.read(SettingsService.subtitlePreferenceOverride) ??
             SubtitlePreferenceOverride.off;
-        final accountPreferences = context.read<AccountPreferencesController>();
         if (isItemChange && initializationSubtitleTrack == null && overrideSetting != SubtitlePreferenceOverride.off) {
           await accountPreferences.ensureActiveLoaded();
           if (!isCurrentReload()) return MediaReloadOutcome.superseded;

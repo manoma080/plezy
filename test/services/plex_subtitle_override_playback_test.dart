@@ -17,6 +17,69 @@ import '../test_helpers/backend_client_fixtures.dart';
 import '../test_helpers/media_items.dart';
 
 void main() {
+  for (final kind in [MediaKind.movie, MediaKind.clip, MediaKind.photo, MediaKind.track]) {
+    test('automatic subtitle override respects playback scope for ${kind.name}', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      PlexApiCache.initialize(db);
+      final writes = <http.Request>[];
+      final client = testPlexClient(
+        serverId: ServerId('server-id'),
+        handler: (request) async {
+          if (request.method == 'PUT') {
+            writes.add(request);
+            return http.Response('', 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'MediaContainer': {
+                'Metadata': [
+                  {
+                    'ratingKey': '42',
+                    'type': kind.id,
+                    'title': 'Item',
+                    'Media': [
+                      {
+                        'id': 7,
+                        'container': 'mkv',
+                        'Part': [
+                          {
+                            'id': 99,
+                            'key': '/library/parts/99/file.mkv',
+                            'Stream': [
+                              {'streamType': 1, 'id': 300, 'codec': 'h264'},
+                              {'streamType': 3, 'id': 401, 'codec': 'srt', 'languageCode': 'eng', 'selected': true},
+                              {'streamType': 3, 'id': 402, 'codec': 'srt', 'languageCode': 'eng', 'title': 'SDH'},
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        },
+      );
+      addTearDown(() async {
+        client.close();
+        await db.close();
+      });
+      final result = await client.getPlaybackInitialization(
+        PlaybackInitializationOptions(
+          metadata: testMediaItem(id: '42', backend: MediaBackend.plex, kind: kind, serverId: 'server-id'),
+          selectedMediaIndex: 0,
+          subtitleOverride: SubtitlePreferenceOverride.cc,
+          subtitleOverrideLanguage: 'en',
+        ),
+      );
+      expect(writes.length, kind == MediaKind.movie ? 1 : 0);
+      expect(result.mediaInfo!.subtitleTracks.where((s) => s.selected).single.id, kind == MediaKind.movie ? 402 : 401);
+    });
+  }
+
   test('playback saves and selects matching subtitle on the chosen part', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     PlexApiCache.initialize(db);
