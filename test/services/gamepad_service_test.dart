@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,32 +8,36 @@ import 'package:plezy/focus/dpad_select_long_press_controller.dart';
 import 'package:universal_gamepad/universal_gamepad.dart';
 
 void main() {
-  testWidgets('disconnecting while B is held does not trigger back', (tester) async {
-    var backs = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Focus(
-          autofocus: true,
-          onKeyEvent: (_, event) {
-            if (event.logicalKey == LogicalKeyboardKey.gameButtonB && event is KeyUpEvent) backs++;
-            return KeyEventResult.handled;
-          },
-          child: const SizedBox.shrink(),
-        ),
+  testWidgets('B routes back through navigator, including a modal and a second press', (tester) async {
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: const Text('root')));
+    unawaited(navigator.currentState!.push(MaterialPageRoute<void>(builder: (_) => const Text('page'))));
+    await tester.pumpAndSettle();
+    unawaited(
+      showDialog<void>(
+        context: navigator.currentContext!,
+        builder: (_) => const AlertDialog(content: Text('modal')),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
     final service = GamepadService.forTesting(duplicateInputGuard: GamepadDuplicateInputGuard(enabled: () => false));
+    Future<void> press() async {
+      service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
+      service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
+      service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: false));
+      await tester.pumpAndSettle();
+    }
+
     service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
-    await tester.pump();
     service.debugHandleGamepadEvent(_disconnect());
-    await tester.pump();
-    expect(backs, 0);
-    service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: true));
-    await tester.pump();
-    service.debugHandleGamepadEvent(_button(GamepadButton.b, pressed: false));
-    await tester.pump();
-    expect(backs, 1);
+    await tester.pumpAndSettle();
+    expect(find.text('modal'), findsOneWidget);
+    await press();
+    expect(find.text('modal'), findsNothing);
+    expect(find.text('page'), findsOneWidget);
+    await press();
+    expect(find.text('page'), findsNothing);
+    expect(find.text('root'), findsOneWidget);
   });
 
   testWidgets('disconnecting while A is held does not activate on release', (tester) async {

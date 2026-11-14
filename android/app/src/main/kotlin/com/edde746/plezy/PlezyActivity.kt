@@ -18,6 +18,7 @@ import android.util.Log
 import android.util.Rational
 import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -614,6 +615,26 @@ class PlezyActivity : FlutterActivity() {
       }
     }
     return handled
+  }
+
+  // Observe, never consume: vertical axes and all existing native dispatch
+  // remain owned by Android and the gamepad plugin. The plugin filters some
+  // composite devices and its FlutterView listener can be bypassed by views.
+  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+    val range = event.device?.getMotionRange(MotionEvent.AXIS_Z, event.source)
+    if (event.actionMasked == MotionEvent.ACTION_MOVE &&
+      (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK &&
+      range != null && range.min < 0f && range.max > 0f
+    ) {
+      flutterEngine?.let { engine ->
+        val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "com.plezy/right_stick")
+        for (i in 0 until event.historySize) {
+          channel.invokeMethod("horizontal", event.getHistoricalAxisValue(MotionEvent.AXIS_Z, i).toDouble())
+        }
+        channel.invokeMethod("horizontal", event.getAxisValue(MotionEvent.AXIS_Z).toDouble())
+      }
+    }
+    return super.dispatchGenericMotionEvent(event)
   }
 
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

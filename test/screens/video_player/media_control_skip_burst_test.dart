@@ -109,7 +109,7 @@ void main() {
     );
   });
 
-  testWidgets('right stick seeks with configured small and large intervals', (tester) async {
+  testWidgets('right stick seeks horizontally by the configured small interval', (tester) async {
     final settings = await SettingsService.getInstance();
     await settings.write(SettingsService.seekTimeLarge, 45);
     final player = _SeekRecordingPlayer(position: const Duration(minutes: 2));
@@ -124,7 +124,7 @@ void main() {
         for (final entry in [
           (GamepadAxis.rightStickX, -1.0, 110),
           (GamepadAxis.rightStickX, 1.0, 120),
-          (GamepadAxis.rightStickY, -1.0, 165),
+          (GamepadAxis.rightStickY, -1.0, 120),
           (GamepadAxis.rightStickY, 1.0, 120),
         ]) {
           service.debugHandleGamepadEvent(
