@@ -57,7 +57,9 @@ void main() {
     final manual = client.selectStreams(99, subtitleStreamID: 0);
     await client.applyProfileUpdate(newToken: 'token-b', newProfileScopeId: scopeB);
     release.complete();
-    expect(await first, isTrue);
+    // The server accepted the in-flight write, but its result is stale for UI
+    // purposes after switching profiles. Its original cache still must expire.
+    expect(await first, isFalse);
     expect(await automatic, isFalse);
     expect(await manual, isFalse);
     expect(writes, ['401:token-a']);

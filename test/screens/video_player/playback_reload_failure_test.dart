@@ -1246,6 +1246,9 @@ class _PlexStreamSelectClient with PlaybackReportRecorder implements PlexClient 
   final selectStreamsCalls = <({int partId, int? audioStreamID, int? subtitleStreamID})>[];
 
   @override
+  final Object authenticationSessionId = Object();
+
+  @override
   ServerId get serverId => ServerId('srv-1');
   @override
   String get serverName => 'Server';

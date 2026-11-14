@@ -1570,22 +1570,24 @@ class PlexClient
     _subtitlePartItems[(scope, partId)] = ratingKey;
     final bool saved;
     try {
-      saved = await _serializeSubtitleWrite(
-        () => _wrapBoolApiCall(
+      saved = await _serializeSubtitleWrite(() async {
+        final written = await _wrapBoolApiCall(
           () => _http.put('/library/parts/$partId', queryParameters: {'subtitleStreamID': streamId, 'allParts': 0}),
           'Failed to select subtitle',
-        ),
-        current: generation == null ? null : () => _subtitleIntentCurrent(scope, ratingKey, partId, generation),
-      );
+        );
+        // Even if the result becomes stale for the caller, an accepted PUT
+        // changed the original profile's metadata and its cache must expire.
+        if (written) {
+          try {
+            await cache.invalidateFreshness(ServerId(cacheScope), '/library/metadata/$ratingKey');
+          } catch (e, st) {
+            appLogger.w('Subtitle saved but metadata cache invalidation failed', error: e, stackTrace: st);
+          }
+        }
+        return written;
+      }, current: generation == null ? null : () => _subtitleIntentCurrent(scope, ratingKey, partId, generation));
     } catch (_) {
       return false;
-    }
-    if (saved) {
-      try {
-        await cache.invalidateFreshness(ServerId(cacheScope), '/library/metadata/$ratingKey');
-      } catch (e, st) {
-        appLogger.w('Subtitle saved but metadata cache invalidation failed', error: e, stackTrace: st);
-      }
     }
     return saved;
   }
