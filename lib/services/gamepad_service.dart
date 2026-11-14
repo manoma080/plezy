@@ -208,6 +208,18 @@ class GamepadService with WindowListener {
     _tabNavigationHandlers.clear();
   }
 
+  static final Map<Object, ({void Function(TraversalDirection) onSeek, bool Function() isActive})> _seekHandlers = {};
+
+  static void registerRightStickSeek(
+    Object owner, {
+    required void Function(TraversalDirection) onSeek,
+    required bool Function() isActive,
+  }) {
+    _seekHandlers[owner] = (onSeek: onSeek, isActive: isActive);
+  }
+
+  static void unregisterRightStickSeek(Object owner) => _seekHandlers.remove(owner);
+
   static const double _stickDeadzone = 0.5;
 
   static const Duration _repeatInitialDelay = Duration(milliseconds: 400);
@@ -217,6 +229,8 @@ class GamepadService with WindowListener {
 
   TraversalDirection? _leftStickYLatch;
   TraversalDirection? _leftStickXLatch;
+  TraversalDirection? _rightStickXLatch;
+  TraversalDirection? _rightStickYLatch;
 
   final Set<GamepadButton> _pressedButtons = {};
   final Set<GamepadButton> _suppressedButtons = {};
@@ -329,6 +343,8 @@ class GamepadService with WindowListener {
     // Reset analog stick state so re-focus doesn't inherit stale direction
     _leftStickYLatch = null;
     _leftStickXLatch = null;
+    _rightStickXLatch = null;
+    _rightStickYLatch = null;
   }
 
   void _registerNativeKeyHandler() {
@@ -563,9 +579,43 @@ class GamepadService with WindowListener {
           negative: TraversalDirection.left,
           positive: TraversalDirection.right,
         );
-      default:
-        break;
+      case GamepadAxis.rightStickX:
+        _rightStickXLatch = _seekStickAxis(
+          event.value,
+          _rightStickXLatch,
+          TraversalDirection.left,
+          TraversalDirection.right,
+        );
+      case GamepadAxis.rightStickY:
+        _rightStickYLatch = _seekStickAxis(
+          event.value,
+          _rightStickYLatch,
+          TraversalDirection.up,
+          TraversalDirection.down,
+        );
     }
+  }
+
+  TraversalDirection? _seekStickAxis(
+    double value,
+    TraversalDirection? held,
+    TraversalDirection negative,
+    TraversalDirection positive,
+  ) {
+    final direction = value < -_stickDeadzone
+        ? negative
+        : value > _stickDeadzone
+        ? positive
+        : null;
+    if (direction != null && direction != held) {
+      for (final handler in _seekHandlers.values.toList().reversed) {
+        if (handler.isActive()) {
+          handler.onSeek(direction);
+          break;
+        }
+      }
+    }
+    return direction;
   }
 
   /// Fire [direction] immediately, then auto-repeat after an initial delay.

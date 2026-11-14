@@ -5,6 +5,8 @@ import 'package:plezy/mpv/mpv.dart';
 import 'package:plezy/providers/playback_state_provider.dart';
 import 'package:plezy/screens/video_player_screen.dart';
 import 'package:plezy/services/settings_service.dart';
+import 'package:plezy/services/gamepad_service.dart';
+import 'package:universal_gamepad/universal_gamepad.dart';
 import 'package:provider/provider.dart';
 
 import '../../test_helpers/media_items.dart';
@@ -78,6 +80,36 @@ void main() {
       },
     );
   });
+
+  testWidgets('right stick seeks with configured small and large intervals', (tester) async {
+    final settings = await SettingsService.getInstance();
+    await settings.write(SettingsService.seekTimeLarge, 45);
+    final player = _SeekRecordingPlayer(position: const Duration(minutes: 2));
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      testBody: () async {
+        final key = GlobalKey<VideoPlayerScreenState>();
+        await tester.pumpWidget(_screen(key));
+        key.currentState!.player = player;
+        final service = GamepadService.forTesting();
+        for (final entry in [
+          (GamepadAxis.rightStickX, -1.0, 110),
+          (GamepadAxis.rightStickX, 1.0, 120),
+          (GamepadAxis.rightStickY, -1.0, 165),
+          (GamepadAxis.rightStickY, 1.0, 120),
+        ]) {
+          service.debugHandleGamepadEvent(
+            GamepadAxisEvent(gamepadId: 1, timestamp: 0, axis: entry.$1, value: entry.$2),
+          );
+          service.debugHandleGamepadEvent(GamepadAxisEvent(gamepadId: 1, timestamp: 0, axis: entry.$1, value: 0));
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(player.seekTargets.last, Duration(seconds: entry.$3));
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  });
 }
 
 Widget _screen(GlobalKey<VideoPlayerScreenState> key) {
@@ -97,14 +129,17 @@ class _SeekRecordingPlayer implements Player {
   _SeekRecordingPlayer({required Duration position})
     : _state = PlayerState(position: position, duration: const Duration(minutes: 45), seekable: true);
 
-  final PlayerState _state;
+  PlayerState _state;
   final List<Duration> seekTargets = [];
 
   @override
   PlayerState get state => _state;
 
   @override
-  Future<void> seek(Duration position) async => seekTargets.add(position);
+  Future<void> seek(Duration position) async {
+    seekTargets.add(position);
+    _state = _state.copyWith(position: position);
+  }
 
   @override
   Future<void> dispose({bool preserveDisplayMode = false}) async {}
